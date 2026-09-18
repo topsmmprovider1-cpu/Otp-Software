@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Settings</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .set-card { margin-bottom:18px; }
+  .sec-head { display:flex; align-items:center; gap:10px; margin-bottom:4px; }
+  .sec-head .icon { width:34px; height:34px; border-radius:9px; background:var(--panel2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; color:#475569; }
+  .qr-prev { max-width:200px; border:1px solid var(--border); border-radius:12px; padding:10px; background:#fff; margin-top:8px; }
+  .qr-prev img { width:100%; border-radius:6px; display:block; }
+  .radio-row { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  .radio-row label { display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>Settings</h1><p class="sub">Website name and payment gateway (BharatPe UTR verification).</p></div>
+      <button class="btn solid" onclick="save()">Save settings</button>
+    </div>
+
+    <div class="card set-card">
+      <div class="sec-head"><span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></span><b>Website</b></div>
+      <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
+        <div class="field">
+          <label>Website name</label>
+          <input class="input" id="sSiteName" placeholder="SMSOTP" maxlength="40">
+        </div>
+        <div class="field">
+          <label>Currency</label>
+          <select class="input" id="sCurrency">
+            <option value="USD">USD ($)</option>
+            <option value="INR">INR (₹)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card set-card">
+      <div class="sec-head"><span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h18"/><path d="M5 6h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/><path d="M7 15h2"/></svg></span><b>Payment gateway</b></div>
+
+      <div class="field" style="margin-top:10px">
+        <label>Online deposits (BharatPe UTR verification)</label>
+        <label class="switch"><input type="checkbox" id="sPayEnabled"><span class="slider"></span></label>
+      </div>
+
+      <div class="field">
+        <label>QR payment mode</label>
+        <div class="radio-row">
+          <label><input type="radio" name="mode" value="upi" id="mUpi" onchange="setMode('upi')"> Use UPI ID (auto-generate QR)</label>
+          <label><input type="radio" name="mode" value="qr" id="mQr" onchange="setMode('qr')"> Upload custom QR image</label>
+        </div>
+      </div>
+
+      <div id="blockUpi" class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field">
+          <label>UPI ID</label>
+          <input class="input" id="sUpiId" placeholder="merchant@ybl">
+        </div>
+        <div class="field">
+          <label>Payee name (shown on QR)</label>
+          <input class="input" id="sMerchantName" placeholder="SMSOTP">
+        </div>
+      </div>
+
+      <div id="blockQr" style="display:none">
+        <div class="field">
+          <label>Custom QR image (PNG/JPG, max 2MB)</label>
+          <input type="file" id="qrFile" accept="image/*">
+          <button class="btn sm" style="margin-top:8px" onclick="uploadQr()">Upload & activate QR</button>
+        </div>
+        <div class="qr-prev" id="qrPrev"><div class="small" style="color:var(--muted)">No QR uploaded yet.</div></div>
+      </div>
+
+      <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+        <div class="field">
+          <label>BharatPe merchant ID</label>
+          <input class="input" id="sMid" placeholder="48298329">
+        </div>
+        <div class="field">
+          <label>BharatPe token</label>
+          <input class="input" id="sToken" type="password" placeholder="verification token">
+        </div>
+      </div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="btn sm" onclick="save()" style="margin:0">Save</button>
+        <button class="btn sm" onclick="testGateway()">Test connection</button>
+        <span id="gwTest" class="small" style="color:var(--muted2)"></span>
+      </div>
+      <div class="grid-3" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px">
+        <div class="field">
+          <label>Fee percentage</label>
+          <input class="input" id="sFee" type="number" step="0.01" min="0" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Rate (paid → site currency)</label>
+          <input class="input" id="sRate" type="number" step="0.000001" min="0" placeholder="0.012">
+        </div>
+        <div class="field">
+          <label>Minimum deposit</label>
+          <input class="input" id="sMin" type="number" step="0.01" min="0" placeholder="0">
+        </div>
+      </div>
+      <div class="field" style="margin-top:12px">
+        <label>Payment instructions (shown to users)</label>
+        <textarea class="input" id="sInstructions" rows="3" placeholder="Scan the QR, pay the exact amount, then enter the UTR ID below and click Verify."></textarea>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn solid" onclick="save()">Save settings</button>
+    </div>
+
+    <div class="card set-card">
+      <div class="sec-head"><span class="icon" style="color:#475569"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v11H4z"/><path d="M2 17h20v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/></svg></span><b>Admin sessions & activity</b></div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn sm" onclick="loadAdminSessions()">Refresh</button>
+        <span id="admInfo" class="small" style="color:var(--muted)"></span>
+      </div>
+      <div id="admSessWrap" style="margin-top:10px"><div class="small" style="color:var(--muted)">Load admin sessions…</div></div>
+      <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+        <div class="field"><label>Recent admin activity</label><div id="admActWrap"><div class="small" style="color:var(--muted)">Load admin activity…</div></div></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/admin/sidebar.js"></script>
+<script>
+let settings = null;
+
+mountSidebar('settings');
+
+function setMode(m) {
+  document.getElementById('blockUpi').style.display = m === 'upi' ? 'grid' : 'none';
+  document.getElementById('blockQr').style.display = m === 'qr' ? 'block' : 'none';
+}
+window.setMode = setMode;
+
+function fill(s) {
+  settings = s;
+  document.getElementById('sSiteName').value = s.siteName || '';
+  document.getElementById('sCurrency').value = s.currency || 'USD';
+  document.getElementById('sPayEnabled').checked = String(s.paymentEnabled) === '1';
+  setMode(s.paymentMode === 'qr' ? 'qr' : 'upi');
+  if (s.paymentMode === 'qr') document.getElementById('mQr').checked = true;
+  else document.getElementById('mUpi').checked = true;
+  document.getElementById('sUpiId').value = s.paymentUpiId || '';
+  document.getElementById('sMerchantName').value = s.paymentMerchantName || '';
+  document.getElementById('sMid').value = s.bharatpeMerchantId || '';
+  document.getElementById('sToken').value = s.bharatpeToken || '';
+  document.getElementById('sFee').value = s.paymentFeePct || '0';
+  document.getElementById('sRate').value = s.paymentRateInrUsd || '0.012';
+  document.getElementById('sMin').value = s.paymentMin || '0';
+  document.getElementById('sInstructions').value = s.paymentInstructions || '';
+  showQrPreview(s.paymentQr || '');
+}
+
+function showQrPreview(dataUri) {
+  document.getElementById('qrPrev').innerHTML = dataUri
+    ? '<img src="' + dataUri + '" alt="QR">'
+    : '<div class="small" style="color:var(--muted)">No QR uploaded yet.</div>';
+}
+
+window.testGateway = async function () {
+  const span = document.getElementById('gwTest');
+  span.textContent = 'Testing…';
+  await save();
+  try {
+    const r = await API.post('/api/admin/settings/test-payment', {});
+    const ok = r && r.ok;
+    span.innerHTML = ok
+      ? '<b style="color:var(--green)">✓ Connected — ' + esc(r.msg || '') + '</b>'
+      : '<b style="color:#b91c1c">✕ ' + esc((r && r.error) || 'Failed') + '</b>';
+  } catch (e) {
+    if (e && e.message) span.innerHTML = '<b style="color:#b91c1c">✕ ' + esc(e.message) + '</b>';
+    else span.textContent = '';
+  }
+};
+
+window.uploadQr = async function () {
+  const file = document.getElementById('qrFile').files[0];
+  if (!file) return toast('Choose a QR image first', 'err');
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/api/admin/settings/upload-qr', { method: 'POST', headers: { 'Authorization': 'Bearer ' + API.token }, body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    toast(data.msg);
+    await reload();
+  } catch (e) { toast(e.message, 'err'); }
+};
+
+window.save = async function () {
+  const body = {
+    siteName: document.getElementById('sSiteName').value.trim() || 'SMSOTP',
+    currency: document.getElementById('sCurrency').value,
+    paymentEnabled: document.getElementById('sPayEnabled').checked ? '1' : '0',
+    paymentMode: document.querySelector('input[name="mode"]:checked')?.value || 'upi',
+    paymentUpiId: document.getElementById('sUpiId').value.trim(),
+    paymentMerchantName: document.getElementById('sMerchantName').value.trim(),
+    bharatpeMerchantId: document.getElementById('sMid').value.trim(),
+    bharatpeToken: document.getElementById('sToken').value.trim(),
+    paymentFeePct: document.getElementById('sFee').value || '0',
+    paymentRateInrUsd: document.getElementById('sRate').value || '0.012',
+    paymentMin: document.getElementById('sMin').value || '0',
+    paymentInstructions: document.getElementById('sInstructions').value,
+  };
+  try {
+    const r = await API.post('/api/admin/settings', body);
+    toast('Settings saved');
+    settings = r.settings;
+  } catch (e) { toast(e.message, 'err'); }
+};
+
+async function reload() {
+  try { const { settings } = await API.get('/api/admin/settings'); fill(settings); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+function fmtDT(iso) {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+window.loadAdminSessions = async function () {
+  const wrap = document.getElementById('admSessWrap');
+  const info = document.getElementById('admInfo');
+  wrap.innerHTML = '<div class="small" style="color:var(--muted)">Loading…</div>';
+  info.textContent = '';
+  try {
+    const r = await API.get('/api/admin/admin/sessions');
+    const list = r.sessions || [];
+    const active = list.filter((s) => s.is_active).length;
+    info.textContent = list.length + ' admin session(s) · ' + active + ' active';
+    if (!list.length) { wrap.innerHTML = '<div class="small" style="color:var(--muted)">No admin sessions found.</div>'; return; }
+    wrap.innerHTML = list.map((s) => {
+      const fp = s.device_fp ? s.device_fp.slice(0, 6).toUpperCase() + '…' + s.device_fp.slice(-4).toUpperCase() : '';
+      const me = s.current ? ' <b style="color:var(--accent)">· this session</b>' : '';
+      return '<div class="api-row" style="border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin:6px 0;background:var(--bg2)">' +
+        '<div style="display:flex;align-items:center;gap:10px;min-width:0">' + uiIcon('shield', 16) +
+          '<div style="min-width:0"><div class="lbl">' + esc(s.ownerName || 'Admin') + ' — ' + esc(s.device_name || 'Unknown device') + (s.is_active ? '' : ' <span style="color:var(--muted);font-weight:400">(signed out)</span>') + me + '</div>' +
+          '<div class="sub">' + esc(s.ip || '—') + ' · FP ' + esc(fp) + '</div>' +
+          '<div class="sub">Signed in ' + fmtDT(s.created_at) + ' · last seen ' + fmtDT(s.last_seen_at) + '</div></div></div>' +
+        (s.is_active && !s.current ? '<button class="btn sm" onclick="revokeAdminSession(' + s.id + ')">Sign out</button>' : '') +
+      '</div>';
+    }).join('');
+    loadAdminActivity();
+  } catch (e) { wrap.innerHTML = '<div class="small" style="color:var(--danger)">' + esc(e.message) + '</div>'; }
+};
+
+window.revokeAdminSession = async function (sid) {
+  if (!confirm('Sign this admin session out?')) return;
+  try {
+    await API.del('/api/admin/admin/sessions/' + sid);
+    toast('Admin session signed out');
+    loadAdminSessions();
+  } catch (e) { toast(e.message, 'err'); }
+};
+
+async function loadAdminActivity() {
+  const wrap = document.getElementById('admActWrap');
+  try {
+    const r = await API.get('/api/admin/admin/activity');
+    const list = r.activity || [];
+    if (!list.length) { wrap.innerHTML = '<div class="small" style="color:var(--muted)">No admin activity yet.</div>'; return; }
+    wrap.innerHTML = list.slice(0, 12).map((a) =>
+      '<div class="small" style="padding:5px 0;border-bottom:1px solid var(--border)">' +
+        '<b>' + esc(a.ownerName || 'Admin') + '</b> — ' + esc(a.detail || a.type) +
+        ' <span style="color:var(--muted)">' + timeAgo(a.created_at) + ' · ' + esc(a.device_name || '') + ' · ' + esc(a.ip || '') + '</span>' +
+      '</div>').join('');
+  } catch (e) { wrap.innerHTML = '<div class="small" style="color:var(--danger)">' + esc(e.message) + '</div>'; }
+}
+
+(async function init() {
+  const user = await refreshMe();
+  if (!user || user.role !== 'admin') { window.location.href = '/admin-login'; return; }
+  await reload();
+  loadAdminSessions();
+})();
+</script>
+</body>
+</html>

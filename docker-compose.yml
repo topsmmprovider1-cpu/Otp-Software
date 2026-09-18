@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  otp-software:
+    build: .
+    container_name: otp-software
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_MODE=sqlite
+      - JWT_SECRET=change-this-jwt-secret-in-production
+    volumes:
+      - otp_data:/app/data
+
+volumes:
+  otp_data:

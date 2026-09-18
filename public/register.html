@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Register — OTP Shop</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<nav class="navbar">
+  <a class="logo" href="/"><span class="dot"></span> OTP<span><b>Shop</b></span></a>
+  <div class="nav-links"><a href="/" class="btn ghost">← Back to home</a></div>
+</nav>
+
+<div class="auth-wrap">
+  <div class="auth-card">
+    <h2>Create account</h2>
+    <div class="sub">Register free and start receiving SMS OTPs</div>
+    <form id="regForm">
+      <div class="field">
+        <label>Full name</label>
+        <input class="input" id="fullName" placeholder="John Doe" required>
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input class="input" type="email" id="email" placeholder="you@example.com" required>
+      </div>
+      <div class="field">
+        <label>Phone (optional)</label>
+        <input class="input" id="phone" placeholder="+91 99999 99999">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input class="input" type="password" id="password" placeholder="min 5 characters" required>
+      </div>
+      <button class="btn solid" style="width:100%;justify-content:center" id="btnSubmit">Create account</button>
+    </form>
+    <div class="form-foot">Already have an account? <a href="/login">Login</a></div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script>
+function getNext() {
+  const n = new URLSearchParams(location.search).get('next');
+  return n && /^\/(?!\/)/.test(n) ? n : '';
+}
+document.getElementById('regForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btnSubmit');
+  if (password.value.length < 5) return toast('Password must be at least 5 characters', 'err');
+  btn.disabled = true; btn.textContent = 'Creating...';
+  try {
+    const data = await API.post('/api/auth/register', {
+      fullName: fullName.value.trim(), email: email.value.trim(),
+      phone: phone.value.trim(), password: password.value,
+    });
+    API.setSession(data);
+    toast('Account created!');
+    startAutoRefresh();
+    setTimeout(() => { window.location.href = getNext() || '/app/index'; }, 500);
+  } catch (err) {
+    toast(err.message, 'err');
+    btn.disabled = false; btn.textContent = 'Create account';
+  }
+});
+</script>
+</body>
+</html>

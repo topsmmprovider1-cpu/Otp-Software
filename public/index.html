@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OTP Shop — Buy Virtual Numbers & Receive SMS Online</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a class="logo" href="/"><span class="dot"></span> OTP<span><b>Shop</b></span></a>
+  <div class="nav-links">
+    <a href="/#services">Services</a>
+    <a href="/#how">How it works</a>
+    <a href="#" id="balanceChip" class="balance-pill hidden"></a>
+    <a href="/app/dashboard" class="btn solid hidden" id="btnBuyNav">Buy Numbers</a>
+    <a href="/app/orders" class="btn hidden" id="btnOrdersNav">My Orders</a>
+    <a href="/login" class="btn" id="btnLogin">Login</a>
+    <a href="/register" class="btn solid" id="btnRegister">Sign up</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <h1>Receive SMS Online & <b>Verify Accounts</b> Instantly</h1>
+  <p>Buy virtual numbers for Instagram, WhatsApp, Telegram, Gmail &amp; 500+ services.
+     OTP arrives in seconds. Cancel anytime if SMS doesn't arrive.</p>
+  <div class="hero-cta">
+    <a href="/app/dashboard" class="btn solid" style="font-size:16px;padding:14px 26px">Buy A Number</a>
+    <a href="/register" class="btn" style="font-size:16px;padding:14px 26px">Create Free Account</a>
+  </div>
+  <div class="stat-strip">
+    <div class="stat-card"><div class="num" id="stServices">—</div><div class="lbl">Services</div></div>
+    <div class="stat-card"><div class="num" id="stCountries">—</div><div class="lbl">Countries</div></div>
+    <div class="stat-card"><div class="num" id="stNumbers">—</div><div class="lbl">Numbers Available</div></div>
+    <div class="stat-card"><div class="num" id="stSpeed">&lt;5</div><div class="lbl">Avg. SMS Time (sec)</div></div>
+  </div>
+</header>
+
+<section class="section" id="services">
+  <h2>Popular Services</h2>
+  <p class="sub">Cheapest number for each platform, updated live</p>
+  <div class="service-grid" id="serviceGrid"></div>
+</section>
+
+<section class="section" id="how">
+  <h2>How It Works</h2>
+  <p class="sub">Three simple steps to get your OTP</p>
+  <div class="steps">
+    <div class="step"><div class="n">STEP 01</div><h3>Pick a service</h3><p class="small mt">Choose the platform you want to verify and the country number you need.</p></div>
+    <div class="step"><div class="n">STEP 02</div><h3>Buy & receive number</h3><p class="small mt">Pay from wallet, get a real number instantly and use it on the platform.</p></div>
+    <div class="step"><div class="n">STEP 03</div><h3>Read the OTP</h3><p class="small mt">We pull the SMS immediately — OTP shows automatically in your order.</p></div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Why OTP Shop?</h2>
+  <p class="sub">Fast, reliable virtual numbers for account verification</p>
+  <div class="steps">
+    <div class="step"><div class="n">01</div><h3>Instant OTP pulling</h3><p class="small mt">OTP arrives within seconds via the SMS API — no refresh needed.</p></div>
+    <div class="step"><div class="n">02</div><h3>Refund guarantee</h3><p class="small mt">If the OTP doesn't arrive, cancel the order and get your balance back.</p></div>
+    <div class="step"><div class="n">03</div><h3>Worldwide coverage</h3><p class="small mt">US, UK, India, Canada &amp; more — admin panel se naye numbers roz khulte hain.</p></div>
+  </div>
+</section>
+
+<footer>
+  © 2026 OTP Shop · All rights reserved · Built with <b>Node.js + Express</b>
+</footer>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script>
+(async function init() {
+  const me = await refreshMe();
+  if (me) {
+    document.getElementById('btnLogin').style.display = 'none';
+    document.getElementById('btnRegister').style.display = 'none';
+    document.getElementById('btnBuyNav').classList.remove('hidden');
+    document.getElementById('btnOrdersNav').classList.remove('hidden');
+    if (me.role === 'admin') {
+      const a = document.createElement('a'); a.href = '/admin/index'; a.className = 'btn';
+      a.textContent = 'Admin'; document.querySelector('.nav-links').appendChild(a);
+    }
+  }
+
+  try {
+    const { platforms, countries } = await API.get('/api/services');
+    const total = platforms.reduce((s, p) => s + p.countries.reduce((a, c) => a + c.count, 0), 0);
+    document.getElementById('stServices').textContent = platforms.length;
+    document.getElementById('stCountries').textContent = countries.length;
+    document.getElementById('stNumbers').textContent = total;
+
+    const grid = document.getElementById('serviceGrid');
+    platforms.slice(0, 12).forEach((p) => {
+      const min = p.countries.reduce((m, c) => Math.min(m, c.price), Infinity);
+      const el = document.createElement('div');
+      el.className = 'service-card';
+      el.onclick = () => { window.location.href = '/app/dashboard'; };
+      const cc = (p.countries.length || 0);
+      el.innerHTML =
+        '<span class="brand-logo">' + platformLogo(p.platform, 24) + '</span>' +
+        '<div style="font-weight:800;font-size:15px">' + esc(p.platform) + '</div>' +
+        '<div class="small">' + cc + ' countries · start ' + fmtNum(min) + '</div>';
+      grid.appendChild(el);
+    });
+  } catch (e) { /* services offline */ }
+})();
+</script>
+</body>
+</html>

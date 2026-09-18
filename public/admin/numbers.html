@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Numbers</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>Numbers Inventory</h1><p class="sub">Add numbers line-by-line or by file (.txt/.csv/.xlsx). One per line:</p></div>
+    </div>
+    <div class="card" style="background:var(--panel2);border-color:var(--border);font-family:Consolas,monospace;font-size:13px;padding:14px 18px">
+      +12086948340 | USA | Instagram | 2.50 | https://api.sms8.net/api/record?token=XXXX<br>
+      +447700900123 | UK | WhatsApp | 3.00 | https://api.sms8.net/api/record?token=YYYY
+    </div>
+
+    <div class="card mt">
+      <div class="flex" style="margin-bottom:14px">
+        <b class="section-title" style="margin:0">Add numbers</b>
+        <span class="spacer"></span>
+        <input type="file" id="fileInput" accept=".txt,.csv,.xlsx,.xls" class="hidden">
+        <button class="btn" onclick="document.getElementById('fileInput').click()"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg> Upload file</button>
+      </div>
+      <textarea class="input" id="lines" placeholder="+12086948340|USA|Instagram|2.5|https://api.sms8.net/api/record?token=..."></textarea>
+      <div class="actions mt">
+        <button class="btn solid" onclick="addNumbers()">Add numbers</button>
+      </div>
+    </div>
+
+    <div class="filter-row" style="margin-top:20px">
+      <input class="input" id="q" placeholder="Search number / platform / country..." style="max-width:280px">
+      <select class="input" id="fStatus"><option value="">All status</option><option>available</option><option>sold</option><option>disabled</option></select>
+      <span class="spacer"></span>
+      <span class="count" id="countInfo"></span>
+    </div>
+
+    <div class="table-wrap" id="tableWrap"><table><tr><td class="center">Loading...</td></tr></table></div>
+  </main>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/admin/sidebar.js"></script>
+<script>
+let numbers = [];
+const BADGE = { available: 'green', sold: 'amber', disabled: 'grey' };
+
+mountSidebar('numbers');
+
+async function load() {
+  const { numbers: list } = await API.get('/api/admin/numbers');
+  numbers = list; render();
+}
+
+function render() {
+  const q = (document.getElementById('q').value || '').toLowerCase();
+  const fs = document.getElementById('fStatus').value;
+  const rows = numbers.filter((n) =>
+    (!fs || n.status === fs) &&
+    (!q || n.number.toLowerCase().includes(q) || n.country.toLowerCase().includes(q) ||
+     n.platform.toLowerCase().includes(q) || String(n.id).includes(q))
+  ).slice(0, 400);
+
+  document.getElementById('countInfo').textContent = rows.length + ' shown / ' + numbers.length + ' total';
+
+  const wrap = document.getElementById('tableWrap');
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="center" style="padding:30px;color:var(--muted)">No numbers found.</div>';
+    return;
+  }
+  wrap.innerHTML =
+    '<table><thead><tr><th>ID</th><th>Number</th><th>Country</th><th>Platform</th><th>Price</th><th>Status</th><th>Added</th></tr></thead><tbody>' +
+    rows.map((n) =>
+      '<tr>' +
+      '<td class="small">' + n.id + '</td>' +
+      '<td class="mono">' + esc(n.number) + '</td>' +
+      '<td>' + (countryFlag(n.country) || '') + ' ' + esc(n.country) + '</td>' +
+      '<td><span class="mini-logo">' + platformLogo(n.platform, 14) + '</span>' + esc(n.platform) + '</td>' +
+      '<td><input class="input" style="width:78px;padding:5px 8px" value="' + n.price + '" data-px="' + n.id + '" onchange="updateNumber(' + n.id + ')"></td>' +
+      '<td><select class="input num-status" data-sx="' + n.id + '" onchange="updateNumber(' + n.id + ')">' +
+        ['available','sold','disabled'].map((s) => '<option' + (s === n.status ? ' selected' : '') + '>' + s + '</option>').join('') +
+      '</select></td>' +
+      '<td class="small">' + timeAgo(n.created_at) + '</td>' +
+      '</tr>').join('') +
+    '</tbody></table>';
+
+  document.querySelectorAll('[data-px]').forEach((el) => { el._val = el.value; });
+  document.querySelectorAll('[data-sx]').forEach((el) => { el._val = el.value; });
+}
+
+window.updateNumber = async function (id) {
+  const price = document.querySelector('[data-px="' + id + '"]').value;
+  const status = document.querySelector('[data-sx="' + id + '"]').value;
+  try {
+    await API.patch('/api/admin/numbers/' + id, { price, status });
+    toast('Number #' + id + ' updated');
+    load();
+  } catch (e) { toast(e.message, 'err'); }
+};
+
+window.addNumbers = async function () {
+  const lines = document.getElementById('lines').value.trim();
+  if (!lines) return toast('Paste at least one line first', 'err');
+  const btn = event.target; btn.disabled = true;
+  try {
+    const r = await API.post('/api/admin/numbers', { lines });
+    toast(r.msg);
+    if (r.errors && r.errors.length) r.errors.slice(0, 3).forEach((e) => toast(e, 'err'));
+    document.getElementById('lines').value = '';
+    load();
+  } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
+};
+
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/api/admin/numbers/upload', { method: 'POST', headers: { 'Authorization': 'Bearer ' + API.token }, body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    toast(data.msg);
+    (data.errors || []).slice(0, 3).forEach((er) => toast(er, 'err'));
+    load();
+  } catch (err) { toast(err.message, 'err'); }
+  e.target.value = '';
+});
+
+document.getElementById('q').addEventListener('input', render);
+document.getElementById('fStatus').addEventListener('change', render);
+
+(async function init() {
+  const user = await refreshMe();
+  if (!user || user.role !== 'admin') { window.location.href = '/admin-login'; return; }
+  await load();
+})();
+</script>
+</body>
+</html>

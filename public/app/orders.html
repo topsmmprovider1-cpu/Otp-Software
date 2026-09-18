@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Orders · My Account</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .order { position: relative; }
+  .order-actions { display:flex; gap:8px; }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>My Orders</h1><p class="sub">Number, status and OTP update live — the order auto-completes when the OTP arrives.</p></div>
+    </div>
+
+    <div class="filter-row">
+      <div class="tabs" id="statusTabs">
+        <button class="active" data-s="">All</button>
+        <button data-s="pending">Waiting</button>
+        <button data-s="completed">Completed</button>
+        <button data-s="cancelled">Cancelled</button>
+        <button data-s="expired">Expired</button>
+      </div>
+      <input class="input" id="q" placeholder="Search number / order id..." style="max-width:240px">
+    </div>
+
+    <div id="list"><div class="center" style="padding:60px 0;color:var(--muted)">Loading...</div></div>
+  </main>
+</div>
+
+<!-- cancel modal -->
+<div class="modal-bg hidden" id="cancelModal">
+  <div class="modal">
+    <h3>Cancel this order?</h3>
+    <p class="sub"><span id="cancelRef">#</span> will be refunded to your balance, and the number returns to inventory (only while no OTP has been received).</p>
+    <div class="actions">
+      <button class="btn" onclick="document.getElementById('cancelModal').classList.add('hidden')">Keep waiting</button>
+      <button class="btn danger" id="btnCancelGo" onclick="doCancel()">Yes, cancel & refund</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/app/user-sidebar.js"></script>
+<script>
+mountUserSidebar('orders');
+
+let orders = [];
+let cancelId = null;
+let filterStatus = '';
+let filterQ = '';
+
+const STATUS_BADGE = {
+  pending: ['amber', 'Waiting for OTP'],
+  completed: ['green', 'Completed'],
+  cancelled: ['red', 'Cancelled'],
+  expired: ['red', 'Expired'],
+};
+
+function statusBadge(s) {
+  const [cls, label] = STATUS_BADGE[s] || ['grey', s];
+  return '<span class="badge ' + cls + '">' + label + '</span>';
+}
+
+function render() {
+  const list = document.getElementById('list');
+  const rows = orders.filter((o) =>
+    (!filterStatus || o.status === filterStatus) &&
+    (!filterQ || o.number.toLowerCase().includes(filterQ) || o.orderId.toLowerCase().includes(filterQ))
+  );
+
+  if (!rows.length) {
+    list.innerHTML = '<div class="center" style="padding:60px 0;color:var(--muted)">' +
+      (orders.length ? 'No orders match.' : 'No orders yet.<br>') +
+      (orders.length ? '' : '<a href="/app/dashboard" class="btn solid mt" style="margin-top:14px">Buy your first number</a>') +
+      '</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const o of rows) {
+    const isPending = o.status === 'pending';
+    const el = document.createElement('div');
+    el.className = 'order';
+    if (o.expiresInMs >= 0 && isPending) el.setAttribute('data-expiry', o.createdAt);
+
+    let body = '';
+    if (o.status === 'completed' && o.otpCode) {
+      body =
+        '<div class="otp-box">' +
+          '<div><div class="small">YOUR OTP CODE</div><div class="otp-code">' + esc(o.otpCode) + '</div></div>' +
+          '<button class="btn solid" data-copy="' + esc(o.otpCode) + '">Copy OTP</button>' +
+        '</div>' +
+        (o.otpMessage ? '<div class="otp-msg">' + esc(o.otpMessage) + '</div>' : '') +
+        '<div class="small">OTP received ' + timeAgo(o.otpTime) + ' · number marked sold, price ' + fmtNum(o.price) + ' charged.</div>';
+    } else if (isPending) {
+      body =
+        '<div class="otp-box pulsable">' +
+          '<div class="pulse" style="font-size:22px;color:var(--accent)">' + uiIcon('signal', 26) + '</div>' +
+          '<div><div class="small" style="letter-spacing:1px">PULLING SMS LIVE — OTP ATE HI DIKHEGA</div>' +
+          '<div class="otp-code" style="font-size:20px;letter-spacing:2px" data-countdown="' + o.id + '">--:--</div></div>' +
+        '</div>' +
+        '<div class="small">Use this number on the platform — pulling started instantly after purchase.</div>';
+    } else {
+      body = '<div class="small">' +
+        (o.otpCode ? 'OTP: <b>' + esc(o.otpCode) + '</b> · ' : '') +
+        'Created ' + timeAgo(o.createdAt) + '</div>';
+    }
+
+    el.innerHTML =
+      '<div class="order-head">' +
+        '<div class="flex">' +
+          '<span class="mini-logo" style="width:26px;height:26px">' + platformLogo(o.platform, 15) + '</span>' +
+          '<div><b class="mono">' + esc(o.orderId) + '</b>' +
+          '<div class="small" style="color:var(--muted)">' + (countryFlag(o.country) || '') + ' ' + esc(o.platform) + ' · ' + esc(o.country) + '</div></div>' +
+          statusBadge(o.status) +
+        '</div>' +
+        '<div class="flex">' + (isPending ? '<button class="btn danger" style="padding:8px 14px" onclick="openCancel(' + o.id + ')">Cancel & Refund</button>' : '') + '</div>' +
+      '</div>' +
+      '<div class="order-info">' +
+        '<div class="number-chip">' + esc(o.number) + '</div>' +
+        '<div class="kv"><span>PLATFORM</span><b>' + esc(o.platform) + '</b></div>' +
+        '<div class="kv"><span>COUNTRY</span><b>' + (countryFlag(o.country) || '') + ' ' + esc(o.country) + '</b></div>' +
+        '<div class="kv"><span>PRICE</span><b style="color:var(--accent)">' + fmtNum(o.price) + '</b></div>' +
+      '</div>' + body +
+      '<div class="order-foot"><span class="small">Ordered ' + timeAgo(o.createdAt) + (o.pullCount > 0 ? ' · ' + o.pullCount + ' pull(s)' : '') + '</span></div>';
+
+    list.appendChild(el);
+  }
+}
+
+function updateCountdowns() {
+  for (const o of orders) {
+    if (o.status !== 'pending' || !o.deadline) continue;
+    const el = document.querySelector('[data-countdown="' + o.id + '"]');
+    if (!el) continue;
+    const ms = o.deadline - Date.now();
+    el.textContent = ms <= 0 ? 'checking...' : fmtClock(ms) + ' left';
+  }
+}
+setInterval(updateCountdowns, 1000);
+
+async function load() {
+  try {
+    const { orders: list } = await API.get('/api/orders');
+    orders = list.map((o) => ({ ...o, deadline: Date.now() + o.expiresInMs }));
+    render();
+    const hasPending = orders.some((o) => o.status === 'pending');
+    document.title = hasPending ? '(●) My Orders' : 'My Orders';
+  } catch (e) { }
+}
+
+function openCancel(id) {
+  cancelId = id;
+  const o = orders.find((x) => x.id === id);
+  document.getElementById('cancelRef').textContent = o ? o.orderId : '';
+  document.getElementById('cancelModal').classList.remove('hidden');
+}
+
+async function doCancel() {
+  const btn = document.getElementById('btnCancelGo');
+  btn.disabled = true;
+  try {
+    const r = await API.post('/api/orders/' + cancelId + '/cancel');
+    toast('Order cancelled, ' + fmtNum(r.refunded) + ' refunded');
+    document.getElementById('cancelModal').classList.add('hidden');
+    refreshSideBalance();
+    await load();
+  } catch (err) {
+    toast(err.message, 'err');
+    document.getElementById('cancelModal').classList.add('hidden');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function copyOtp(code) {
+  navigator.clipboard.writeText(code).then(() => toast('OTP copied: ' + code))
+    .catch(() => toast('Copy failed', 'err'));
+}
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-copy]');
+  if (btn) copyOtp(btn.getAttribute('data-copy'));
+});
+
+document.getElementById('statusTabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  document.querySelectorAll('#statusTabs button').forEach((x) => x.classList.remove('active'));
+  b.classList.add('active');
+  filterStatus = b.getAttribute('data-s');
+  render();
+});
+document.getElementById('q').addEventListener('input', (e) => { filterQ = e.target.value.toLowerCase(); render(); });
+
+(async function init() {
+  mountUserSidebar('orders');
+  const me = await refreshMe();
+  if (!me) { window.location.href = loginUrl(); return; }
+  setSideBalance(me.balance);
+  await load();
+  setInterval(load, 3000);
+})();
+</script>
+</body>
+</html>

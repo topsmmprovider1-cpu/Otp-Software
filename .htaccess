@@ -1,0 +1,46 @@
+# ============================================================
+#  SMSOTP - Apache configuration
+#  Serves the app with clean URLs (no .html extension).
+#  Works with the Node app when this folder is the web root
+#  (or a proxied static build). Disable MultiViews first.
+# ============================================================
+
+Options -MultiViews -Indexes
+DirectoryIndex index.html index.htm
+
+# Force HTTPS (uncomment once SSL cert is active)
+# RewriteCond %{HTTPS} !=on
+# RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # 1) Exclude /api from rewriting (handled by the Node API server)
+  RewriteRule ^api/ - [L]
+
+  # 2) Redirect requests for "page.html" -> "page" (clean URL, 301)
+  RewriteCond %{THE_REQUEST} \s/+([^?./]+\.html)(\?|\s|$) [NC]
+  RewriteRule ^([^.?]+)\.html$ /$1 [R=301,L]
+
+  # 3) Serve "page" via "page.html" if that file exists (internal rewrite)
+  RewriteCond %{SCRIPT_FILENAME} !-d
+  RewriteCond %{SCRIPT_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME}.html -f
+  RewriteRule ^(.+)$ $1.html [L]
+
+  # 4) Serve "dir" via "dir/index.html" for directory requests
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_URI} /+$
+</IfModule>
+
+# Basic security headers (optional — enable only on HTTPS)
+# Header set X-Content-Type-Options "nosniff"
+# Header set X-Frame-Options "SAMEORIGIN"
+
+# Prevent listing of sensitive directories
+<IfModule mod_autoindex.c>
+  <IfModule mod_rewrite.c>
+    RewriteRule ^(data|src|node_modules|tests)(/|$) - [F,L]
+  </IfModule>
+</IfModule>

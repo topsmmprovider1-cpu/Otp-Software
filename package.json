@@ -1,0 +1,24 @@
+{
+  "name": "otp-software",
+  "version": "1.0.0",
+  "description": "OTP Buy / Virtual Number Shop - SMS-MAN style platform with admin panel and sms8.net OTP pulling",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node tests/e2e.js",
+    "test:svc": "node tests/e2e-svc.js",
+    "test:supabase": "node tests/e2e.js --mode supabase"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.3.0",
+    "xlsx": "^0.18.5"
+  }
+}

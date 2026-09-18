@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Payments</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .badge.pending { background:#fff7e6; color:#b45309; }
+  .badge.approved { background:#e8f9f0; color:#14804a; }
+  .badge.rejected { background:#fdeceb; color:#b91c1c; }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>Payments</h1><p class="sub">All deposits verified via UTR, plus manual wallet adjustments.</p></div>
+    </div>
+
+    <div class="stats-grid" style="margin-bottom:22px">
+      <div class="stat-card"><div class="num" id="stTotal">0</div><div class="lbl">Total payments</div></div>
+      <div class="stat-card"><div class="num" id="stApproved">0</div><div class="lbl">Approved</div></div>
+      <div class="stat-card"><div class="num" id="stPending">0</div><div class="lbl">Pending review</div></div>
+      <div class="stat-card"><div class="num" id="stCredit">$0</div><div class="lbl">Credited total</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <b class="section-title">Manual balance adjustment</b>
+      <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:10px">
+        <select class="input" id="mUser" style="max-width:260px"><option value="">Loading users...</option></select>
+        <input class="input" id="mAmt" type="number" step="0.01" placeholder="Amount (+ add / − deduct)" style="max-width:220px">
+        <input class="input" id="mNote" placeholder="Note (optional)" style="max-width:240px">
+        <button class="btn solid" onclick="manualAdj()">Apply</button>
+      </div>
+    </div>
+
+    <div class="filter-row">
+      <input class="input" id="q" placeholder="Search UTR / user / email..." style="max-width:300px">
+      <select class="input" id="fStatus"><option value="">All status</option><option>approved</option><option>pending</option><option>rejected</option></select>
+      <span class="spacer"></span>
+      <button class="btn" onclick="load()">Refresh</button>
+    </div>
+    <div class="table-wrap" id="wrap"><table><tr><td class="center">Loading...</td></tr></table></div>
+  </main>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/admin/sidebar.js"></script>
+<script>
+let payments = [];
+const B = { pending: 'pending', approved: 'approved', rejected: 'rejected' };
+
+mountSidebar('payments');
+
+async function load() {
+  const { payments: list } = await API.get('/api/admin/payments');
+  payments = list;
+  render();
+  const st = { total: list.length, approved: 0, pending: 0, credit: 0 };
+  list.forEach((p) => { if (p.status === 'approved') st.approved += 1; if (p.status === 'pending') st.pending += 1; if (p.status === 'approved') st.credit += Number(p.credit) || 0; });
+  document.getElementById('stTotal').textContent = st.total;
+  document.getElementById('stApproved').textContent = st.approved;
+  document.getElementById('stPending').textContent = st.pending;
+  document.getElementById('stCredit').textContent = fmtNum(st.credit);
+}
+
+function render() {
+  const q = (document.getElementById('q').value || '').toLowerCase();
+  const fs = document.getElementById('fStatus').value;
+  const rows = payments.filter((p) =>
+    (!fs || p.status === fs) &&
+    (!q || p.utr.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q) || p.fullName?.toLowerCase().includes(q))
+  );
+  const wrap = document.getElementById('wrap');
+  if (!rows.length) { wrap.innerHTML = '<div class="center" style="padding:30px;color:var(--muted)">No payments found.</div>'; return; }
+  wrap.innerHTML =
+    '<table><thead><tr><th>ID</th><th>User</th><th>UTR</th><th>Paid</th><th>Credited</th><th>Method</th><th>Status</th><th>Date</th><th style="text-align:right">Actions</th></tr></thead><tbody>' +
+    rows.map((p) =>
+      '<tr>' +
+      '<td class="small">' + p.id + '</td>' +
+      '<td><b>' + esc(p.fullName || p.email || '—') + '</b><div class="cell-sub">' + esc(p.email || '') + '</div></td>' +
+      '<td class="mono">' + esc(p.utr) + '</td>' +
+      '<td>' + fmtNum(p.amount) + '</td>' +
+      '<td><b class="mono" style="color:var(--green)">' + fmtNum(p.credit || 0) + '</b></td>' +
+      '<td class="small">' + esc(p.method || '—') + '</td>' +
+      '<td><span class="badge ' + (B[p.status] || 'grey') + '">' + esc(p.status) + '</span></td>' +
+      '<td class="small">' + timeAgo(p.created_at) + '</td>' +
+      '<td style="text-align:right">' +
+        (p.status === 'pending'
+          ? '<div class="actions" style="justify-content:flex-end;gap:6px">' +
+              '<button class="btn sm" onclick="setStatus(' + p.id + ',\'approve\')">Approve</button>' +
+              '<button class="btn sm danger" onclick="setStatus(' + p.id + ',\'reject\')">Reject</button></div>'
+          : '<span class="small" style="color:var(--muted2)">' + (p.status === 'approved' ? 'Processed' : '—') + '</span>') +
+      '</td></tr>').join('') +
+    '</tbody></table>';
+}
+
+window.setStatus = async function (id, action) {
+  try {
+    const r = await API.post('/api/admin/payments/' + id + '/' + action);
+    toast(r.msg);
+    load();
+  } catch (e) { toast(e.message, 'err'); }
+};
+
+window.manualAdj = async function () {
+  const userId = document.getElementById('mUser').value;
+  const amount = parseFloat(document.getElementById('mAmt').value);
+  const note = document.getElementById('mNote').value.trim();
+  if (!userId) return toast('Select a user', 'err');
+  if (!amount) return toast('Enter an amount (negative to deduct)', 'err');
+  try {
+    const r = await API.post('/api/admin/payments/manual', { userId, amount, note });
+    toast(r.msg + ' — balance ' + fmtNum(r.balance));
+    document.getElementById('mAmt').value = '';
+    document.getElementById('mNote').value = '';
+  } catch (e) { toast(e.message, 'err'); }
+};
+
+document.getElementById('q').addEventListener('input', () => setTimeout(render, 200));
+document.getElementById('fStatus').addEventListener('change', render);
+
+(async function init() {
+  const user = await refreshMe();
+  if (!user || user.role !== 'admin') { window.location.href = '/admin-login'; return; }
+  await load().catch((e) => toast(e.message, 'err'));
+  try {
+    const { users } = await API.get('/api/admin/users');
+    const sel = document.getElementById('mUser');
+    sel.innerHTML = '<option value="">Select user...</option>' +
+      users.map((u) => '<option value="' + u.id + '">' + esc(u.fullName + ' (' + u.email + ')')) + '</option>';
+  } catch (e) { }
+})();
+</script>
+</body>
+</html>

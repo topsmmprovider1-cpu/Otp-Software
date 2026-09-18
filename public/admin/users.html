@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Users</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>Users</h1><p class="sub">Customer accounts, balances and roles — all managed here.</p></div>
+    </div>
+
+    <div class="table-wrap" id="wrap"><table><tr><td class="center">Loading...</td></tr></table></div>
+  </main>
+</div>
+
+<!-- balance modal -->
+<div class="modal-bg hidden" id="balModal">
+  <div class="modal">
+    <h3>Update balance</h3>
+    <p class="sub" id="balUser"></p>
+    <div class="field"><label>Amount (+ add / − deduct)</label>
+      <input class="input" type="number" step="0.01" id="balAmount" placeholder="10.00">
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="document.getElementById('balModal').classList.add('hidden')">Close</button>
+      <button class="btn solid" id="btnBal" onclick="doBalance()">Update</button>
+    </div>
+  </div>
+</div>
+
+<!-- edit modal -->
+<div class="modal-bg hidden" id="editModal">
+  <div class="modal">
+    <h3>Edit user</h3>
+    <p class="sub" id="editUser"></p>
+    <div class="field"><label>Full name</label><input class="input" id="edName"></div>
+    <div class="field"><label>Email</label><input class="input" id="edEmail" type="email"></div>
+    <div class="field"><label>Phone</label><input class="input" id="edPhone" placeholder="(optional)"></div>
+    <div class="field"><label>New password <span style="text-transform:none;color:var(--muted);font-weight:400">(leave empty to keep current)</span></label><input class="input" id="edPass" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>Role</label>
+      <select class="input" id="edRole"><option value="user">User</option><option value="admin">Admin</option></select>
+    </div>
+    <div class="field"><label>Account status</label>
+      <select class="input" id="edActive"><option value="1">Active</option><option value="0">Disabled</option></select>
+    </div>
+    <p class="sub" id="editHint" style="color:var(--muted)">Changing email, phone or role signs the user out of all devices for security.</p>
+    <div class="actions">
+      <button class="btn" onclick="document.getElementById('editModal').classList.add('hidden')">Close</button>
+      <button class="btn solid" id="btnEdit" onclick="doEdit()">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- sessions modal -->
+<div class="modal-bg hidden" id="sessModal">
+  <div class="modal" style="max-width:560px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <h3 style="margin:0">Devices & sessions</h3>
+      <button class="btn" onclick="revokeAllSessions()">Sign out all devices</button>
+    </div>
+    <p class="sub" id="sessUser"></p>
+    <div id="sessWrap" style="margin-top:8px"><div class="center" style="color:var(--muted);padding:10px">Loading...</div></div>
+    <div class="actions">
+      <button class="btn solid" onclick="document.getElementById('sessModal').classList.add('hidden')">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/admin/sidebar.js"></script>
+<script>
+let users = [];
+let balId = null;
+
+mountSidebar('users');
+
+async function load() {
+  const { users: list } = await API.get('/api/admin/users');
+  users = list;
+  document.getElementById('wrap').innerHTML =
+    '<table><thead><tr><th>User</th><th>Phone</th><th>Balance</th><th>Orders</th><th>Role</th><th>Status</th><th>Joined</th><th style="text-align:right">Actions</th></tr></thead><tbody>' +
+    users.map((u) =>
+      '<tr>' +
+      '<td><div class="cell-user"><div class="avatar">' + esc((u.fullName || '?')[0].toUpperCase()) + '</div><div><b>' + esc(u.fullName) + '</b><div class="cell-sub">' + esc(u.email) + '</div></div></div></td>' +
+      '<td>' + esc(u.phone || '—') + '</td>' +
+      '<td style="color:var(--green);font-weight:700">' + fmtNum(u.balance) + '</td>' +
+      '<td class="small" data-orders="' + u.id + '">—</td>' +
+      '<td><span class="badge ' + (u.role === 'admin' ? 'blue' : 'grey') + '">' + esc(u.role) + '</span></td>' +
+      '<td><span class="badge ' + (u.isActive ? 'green' : 'red') + '">' + (u.isActive ? 'Active' : 'Disabled') + '</span></td>' +
+      '<td class="small">' + timeAgo(u.createdAt) + '</td>' +
+      '<td><div class="flex" style="gap:6px;justify-content:flex-end">' +
+        '<button class="btn icon-only" title="Edit profile / password" onclick="openEdit(' + u.id + ')">' + uiIcon('edit', 16) + '</button>' +
+        '<button class="btn icon-only" title="Devices & sessions" onclick="openSessions(' + u.id + ')">' + uiIcon('laptop', 16) + '</button>' +
+        '<button class="btn icon-only" title="Top up balance" onclick="openBal(' + u.id + ')">' + uiIcon('wallet', 16) + '</button>' +
+        '<button class="btn icon-only" title="' + (u.role === 'admin' ? 'Make user' : 'Make admin') + '" onclick="toggleRole(' + u.id + ')">' + uiIcon('users', 16) + '</button>' +
+        '<button class="btn icon-only" title="' + (u.isActive ? 'Disable account' : 'Enable account') + '" onclick="toggleActive(' + u.id + ')">' + uiIcon('toggle', 16) + '</button>' +
+      '</div></td>' +
+      '</tr>').join('') +
+    '</tbody></table>';
+
+  // fill order counts
+  const { orders } = await API.get('/api/admin/orders');
+  for (const u of users) {
+    const el = document.querySelector('[data-orders="' + u.id + '"]');
+    if (el) el.textContent = orders.filter((o) => o.userId === u.id).length;
+  }
+}
+
+function openBal(id) {
+  balId = id;
+  const u = users.find((x) => x.id === id);
+  document.getElementById('balUser').textContent = 'User: ' + u.fullName + ' (' + u.email + ') · Current: ' + fmtNum(u.balance);
+  document.getElementById('balAmount').value = '';
+  document.getElementById('balModal').classList.remove('hidden');
+}
+
+async function doBalance() {
+  const btn = document.getElementById('btnBal');
+  btn.disabled = true;
+  try {
+    const r = await API.post('/api/admin/users/' + balId + '/balance', { amount: parseFloat(document.getElementById('balAmount').value) });
+    toast('Balance updated → ' + fmtNum(r.balance));
+    document.getElementById('balModal').classList.add('hidden');
+    load();
+  } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
+}
+
+async function toggleRole(id) {
+  const u = users.find((x) => x.id === id);
+  try {
+    await API.patch('/api/admin/users/' + id, { role: u.role === 'admin' ? 'user' : 'admin' });
+    toast('Role updated'); load();
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function toggleActive(id) {
+  const u = users.find((x) => x.id === id);
+  try {
+    await API.patch('/api/admin/users/' + id, { isActive: !u.isActive });
+    toast('Status updated'); load();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+// ---- edit (user manager) ----
+let editId = null;
+function openEdit(id) {
+  editId = id;
+  const u = users.find((x) => x.id === id);
+  document.getElementById('editUser').textContent = 'Editing: ' + u.fullName + ' (' + u.email + ')';
+  document.getElementById('edName').value = u.fullName;
+  document.getElementById('edEmail').value = u.email;
+  document.getElementById('edPhone').value = u.phone || '';
+  document.getElementById('edPass').value = '';
+  document.getElementById('edRole').value = u.role;
+  document.getElementById('edActive').value = u.isActive ? '1' : '0';
+  document.getElementById('editModal').classList.remove('hidden');
+}
+async function doEdit() {
+  const btn = document.getElementById('btnEdit');
+  btn.disabled = true;
+  const payload = {
+    fullName: document.getElementById('edName').value.trim(),
+    email: document.getElementById('edEmail').value.trim(),
+    phone: document.getElementById('edPhone').value.trim(),
+    role: document.getElementById('edRole').value,
+    isActive: document.getElementById('edActive').value === '1',
+  };
+  const pass = document.getElementById('edPass').value;
+  if (pass) payload.password = pass;
+  try {
+    await API.patch('/api/admin/users/' + editId, payload);
+    toast('User updated');
+    document.getElementById('editModal').classList.add('hidden');
+    load();
+  } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
+}
+
+// ---- sessions (user devices) ----
+let sessUserId = null;
+function fmtDT(iso) {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+async function openSessions(id) {
+  sessUserId = id;
+  const u = users.find((x) => x.id === id);
+  document.getElementById('sessUser').textContent = 'Devices signed in as ' + u.fullName + ' (' + u.email + ')';
+  document.getElementById('sessModal').classList.remove('hidden');
+  await renderSessions();
+}
+async function renderSessions() {
+  const wrap = document.getElementById('sessWrap');
+  wrap.innerHTML = '<div class="center" style="color:var(--muted);padding:10px">Loading...</div>';
+  try {
+    const r = await API.get('/api/admin/users/' + sessUserId + '/sessions');
+    const list = r.sessions || [];
+    if (!list.length) { wrap.innerHTML = '<div class="center" style="color:var(--muted);padding:10px">No sessions — user has never signed in on this device system.</div>'; return; }
+    wrap.innerHTML = list.map((s) => {
+      const fp = s.device_fp ? s.device_fp.slice(0, 6).toUpperCase() + '…' + s.device_fp.slice(-4).toUpperCase() : '';
+      return '<div class="api-row">' +
+        '<div style="display:flex;align-items:center;gap:10px;min-width:0">' + uiIcon('laptop', 16) +
+          '<div style="min-width:0"><div class="lbl">' + esc(s.device_name || 'Unknown device') + (s.is_active ? '' : ' <span style="color:var(--muted);font-weight:400">(signed out)</span>') + '</div>' +
+          '<div class="sub">' + esc(s.ip || '—') + ' · FP ' + esc(fp) + '</div>' +
+          '<div class="sub">Signed in ' + fmtDT(s.created_at) + ' · last seen ' + fmtDT(s.last_seen_at) + '</div></div></div>' +
+        (s.is_active ? '<button class="btn" onclick="revokeUserSession(' + s.id + ')">Sign out</button>' : '') +
+      '</div>';
+    }).join('');
+  } catch (e) { wrap.innerHTML = '<div class="center" style="color:var(--danger)">' + esc(e.message) + '</div>'; }
+}
+async function revokeUserSession(sid) {
+  if (!confirm('Sign this device out?')) return;
+  try {
+    await API.del('/api/admin/users/' + sessUserId + '/sessions/' + sid);
+    toast('Session signed out'); renderSessions();
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function revokeAllSessions() {
+  if (!confirm('Sign out every device for this user?')) return;
+  try {
+    await API.del('/api/admin/users/' + sessUserId + '/sessions');
+    toast('All devices signed out'); renderSessions();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+(async function init() {
+  const user = await refreshMe();
+  if (!user || user.role !== 'admin') { window.location.href = '/admin-login'; return; }
+  await load();
+})();
+</script>
+</body>
+</html>

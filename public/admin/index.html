@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard · Admin</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .chart-card { background:#fff; border:1px solid var(--border); border-radius:14px; padding:18px; box-shadow:0 1px 3px rgba(15,23,42,.06); }
+  .chart-card h3 { font-size:14px; font-weight:800; margin-bottom:2px; }
+  .chart-card .cap { font-size:12px; color:var(--muted); margin-bottom:12px; }
+  .chart-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+  .chart-third { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:16px; }
+  .chart svg { width:100%; height:auto; display:block; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:5px; }
+  .big-num { font-size:26px; font-weight:800; line-height:1; }
+  .hrow { display:flex; align-items:center; gap:10px; margin:7px 0; }
+  .hrow .lbl { width:112px; font-size:12px; font-weight:600; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hrow .tl { flex:1; }
+  .hrow .hval { font-size:12px; font-weight:700; width:34px; text-align:right; }
+  .hbar { height:8px; border-radius:5px; background:#eef2f7; overflow:hidden; }
+  .hbar i { display:block; height:100%; border-radius:5px; background:linear-gradient(90deg,var(--accent),var(--accent2)); }
+  .donut-wrap { display:flex; align-items:center; gap:16px; }
+  .donut-labels { flex:1; font-size:12px; }
+  .donut-labels .dl { display:flex; justify-content:space-between; margin:6px 0; color:var(--muted); }
+  .dl b { color:var(--text); font-weight:700; }
+  .msg-item { display:flex; gap:11px; padding:9px 0; border-bottom:1px solid var(--soft-border); align-items:flex-start; }
+  .msg-item:last-child { border-bottom:0; }
+  .txt-clamp { display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
+  @media (max-width:900px) { .chart-grid,.chart-third { grid-template-columns:1fr; } }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+
+  <main class="admin-main">
+    <div class="banner">
+      <div>
+        <div class="b-title" id="bannerTitle">Good day, Admin</div>
+        <div class="b-sub" id="subLine">Loading business overview...</div>
+      </div>
+      <div class="b-pill" id="pollerPill"><span class="dot-static dot-off"></span> Auto-pull ...</div>
+    </div>
+
+    <div class="kpi-grid" id="statsGrid">
+      <div class="skel skel-card" style="height:82px"></div>
+      <div class="skel skel-card" style="height:82px"></div>
+      <div class="skel skel-card" style="height:82px"></div>
+      <div class="skel skel-card" style="height:82px"></div>
+    </div>
+
+    <div class="info-grid" style="margin-bottom:22px">
+      <div class="info-card">
+        <div class="ic-head">
+          <span class="ic-title">Platform notice</span>
+          <span class="badge blue" id="noticeBadge">System</span>
+        </div>
+        <ul class="notice-list" id="noticeList">
+          <li class="skel skel-row"></li>
+          <li class="skel skel-row"></li>
+          <li class="skel skel-row"></li>
+        </ul>
+      </div>
+      <div class="info-card">
+        <div class="ic-head">
+          <span class="ic-title">Message center</span>
+          <a class="ic-link" href="/admin/tickets">View all tickets</a>
+        </div>
+        <div id="messageList">
+          <div class="skel skel-row"></div>
+          <div class="skel skel-row"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h3>Orders — last 14 days</h3>
+        <div class="cap">Total vs completed orders per day</div>
+        <div class="legend"><span><i style="background:#c7d2fe"></i> Total</span><span><i style="background:#2563eb"></i> Completed</span></div>
+        <div class="chart" id="chOrders"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Revenue — last 14 days</h3>
+        <div class="cap">Completed order revenue (USD)</div>
+        <div class="chart" id="chRevenue"></div>
+      </div>
+    </div>
+
+    <div class="chart-third">
+      <div class="chart-card">
+        <h3>Order status</h3>
+        <div class="cap">All time distribution</div>
+        <div class="donut-wrap">
+          <div class="chart" id="chDonut" style="width:150px;flex-shrink:0"></div>
+          <div class="donut-labels" id="donutLabels"></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h3>Top platforms</h3>
+        <div class="cap">By order volume</div>
+        <div id="chPlatforms"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Top countries</h3>
+        <div class="cap">By order volume</div>
+        <div id="chCountries"></div>
+      </div>
+    </div>
+
+    <div class="section-title">Recent orders</div>
+    <div class="table-wrap" id="recentWrap"><div class="skel skel-row" style="margin:12px"></div></div>
+  </main>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/admin/sidebar.js"></script>
+<script>
+mountSidebar('dashboard');
+
+const STATUS_L = { pending: 'Pending', completed: 'Completed', cancelled: 'Cancelled', expired: 'Expired' };
+const STATUS_B = { pending: 'amber', completed: 'green', cancelled: 'red', expired: 'red' };
+const DL = { pending: '#f59e0b', completed: '#10b981', cancelled: '#e11d48', expired: '#94a3b8' };
+
+// ---------- SVG chart helpers ----------
+function axisMax(vals) {
+  const m = Math.max.apply(null, vals.map((v) => Math.max(0, v)));
+  return m <= 0 ? 4 : Math.ceil(m * 1.15);
+}
+function svgBar(items, { color, color2 }) {
+  const h = 190, W = 560, P = 26;
+  const n = items.length;
+  const gw = (W - P * 2) / n;
+  const bw = Math.min(16, gw * 0.55);
+  const max = axisMax(items.map((i) => Math.max(i.v, i.v2 || 0)));
+  const inner = h - 26;
+  let s = '<svg viewBox="0 0 ' + W + ' ' + h + '">';
+  for (let g = 0; g <= 3; g++) {
+    const y = P + (inner / 3) * g;
+    s += '<line x1="' + P + '" y1="' + y + '" x2="' + (W - P) + '" y2="' + y + '" stroke="#eef2f7" stroke-width="1"/>';
+  }
+  items.forEach((it, i) => {
+    const x = P + i * gw + (gw - bw) / 2;
+    const v = it.v || 0, v2 = it.v2 || 0;
+    const h1 = (v / max) * inner, h2 = (v2 / max) * inner;
+    if (v2 > 0) s += '<rect x="' + x + '" y="' + (P + inner - h1) + '" width="' + (bw / 2) + '" height="' + h1 + '" rx="2.5" fill="' + color2 + '" opacity=".95"/>';
+    s += '<rect x="' + (x + bw / 2) + '" y="' + (P + inner - h2) + '" width="' + (bw / 2) + '" height="' + h2 + '" rx="2.5" fill="' + color + '"/>';
+    if (n <= 14) s += '<text x="' + (x + bw / 2) + '" y="' + (h - 6) + '" font-size="9" fill="#94a3b8" text-anchor="middle">' + it.l + '</text>';
+  });
+  return s + '</svg>';
+}
+function svgLineArea(items) {
+  const h = 190, W = 560, P = 26;
+  const n = items.length;
+  const max = axisMax(items.map((i) => i.v));
+  const inner = h - 26;
+  const sx = (i) => P + (n === 1 ? W / 2 - P : (i * (W - P * 2)) / (n - 1));
+  const sy = (v) => P + inner - (v / max) * inner;
+  const pts = items.map((it, i) => sx(i) + ',' + sy(it.v));
+  let s = '<svg viewBox="0 0 ' + W + ' ' + h + '">';
+  for (let g = 0; g <= 3; g++) {
+    const y = P + (inner / 3) * g;
+    s += '<line x1="' + P + '" y1="' + y + '" x2="' + (W - P) + '" y2="' + y + '" stroke="#eef2f7" stroke-width="1"/>';
+  }
+  s += '<defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0ea5e9" stop-opacity=".25"/><stop offset="1" stop-color="#0ea5e9" stop-opacity="0"/></linearGradient></defs>';
+  s += '<polygon points="' + P + ',' + (P + inner) + ' ' + pts.join(' ') + ' ' + (W - P) + ',' + (P + inner) + '" fill="url(#ag)"/>';
+  s += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#0ea5e9" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>';
+  items.forEach((it, i) => {
+    if (it.v > 0) s += '<circle cx="' + sx(i) + '" cy="' + sy(it.v) + '" r="2.6" fill="#0ea5e9"/>';
+    if (n <= 14) s += '<text x="' + sx(i) + '" y="' + (h - 6) + '" font-size="9" fill="#94a3b8" text-anchor="middle">' + it.l + '</text>';
+  });
+  return s + '</svg>';
+}
+function donut(parts, size) {
+  size = size || 150;
+  const r = 54, cx = size / 2, cy = size / 2, sw = 16;
+  const C = r * 2 * Math.PI;
+  const total = parts.reduce((a, p) => a + p.value, 0);
+  const colors = ['#f59e0b', '#10b981', '#e11d48', '#94a3b8'];
+  let off = 0;
+  let s = '<svg viewBox="0 0 ' + size + ' ' + size + '">';
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#eef2f7" stroke-width="' + sw + '"/>';
+  parts.forEach((p, i) => {
+    if (!p.value) return;
+    const seg = (p.value / total) * C;
+    const dash = seg + ' ' + (C - seg);
+    s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + colors[i % colors.length] + '" stroke-width="' + sw + '" stroke-dasharray="' + dash + '" stroke-dashoffset="' + (-off) + '" transform="rotate(-90 ' + cx + ' ' + cy + ')"/>';
+    off += seg;
+  });
+  if (total > 0) s += '<text x="' + cx + '" y="' + (cy + 5) + '" font-size="26" font-weight="800" fill="#1e293b" text-anchor="middle">' + total + '</text>';
+  return s + '</svg>';
+}
+function hbars(items, max) {
+  max = max || axisMax(items.map((i) => i.v));
+  let s = '';
+  items.forEach((it, i) => {
+    const pct = max ? Math.round((it.v / max) * 100) : 0;
+    s += '<div class="hrow">' +
+      '<span class="lbl">' + esc(it.name) + '</span>' +
+      '<span class="tl"><span class="hbar"><i style="width:' + pct + '%"></i></span></span>' +
+      '<span class="hval">' + it.v + '</span></div>';
+  });
+  return s;
+}
+
+(async function init() {
+  const user = await refreshMe();
+  if (!user || user.role !== 'admin') { window.location.href = '/admin-login'; return; }
+
+  const hour = new Date().getHours();
+  document.getElementById('bannerTitle').textContent =
+    'Good ' + (hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening') + ', ' + (user.fullName || 'Admin');
+
+  try {
+    const [st, an, tk] = await Promise.all([
+      API.get('/api/admin/stats'),
+      API.get('/api/admin/analytics'),
+      API.get('/api/admin/tickets'),
+    ]);
+    const stats = st.stats, a = an;
+
+    document.getElementById('subLine').textContent =
+      'Here is what is happening across the platform today — ' + stats.totalOrders + ' total orders and ' + fmtNum(stats.revenue) + ' in revenue so far.';
+
+    const pill = document.getElementById('pollerPill');
+    if (a.poller && a.poller.active) {
+      pill.innerHTML = '<span class="dot-static dot-ok"></span> Auto-pull live · every ' + (a.poller.intervalMs / 1000) + 's';
+    } else {
+      pill.innerHTML = '<span class="dot-static dot-warn"></span> Poller not running';
+    }
+
+    // KPI cards
+    const KP = [
+      { icon: 'money', label: 'Total Revenue', val: fmtNum(stats.revenue), tint: 'var(--green-bg)', tintColor: 'var(--green)' },
+      { icon: 'orders', label: 'Total Orders', val: stats.totalOrders, tint: 'var(--blue-bg)', tintColor: 'var(--accent)' },
+      { icon: 'check', label: 'Completed', val: stats.completed, tint: 'var(--green-bg)', tintColor: 'var(--accent2)' },
+      { icon: 'numbers', label: 'Numbers Ready', val: stats.availableNumbers, tint: 'var(--amber-bg)', tintColor: 'var(--amber)' },
+    ];
+    document.getElementById('statsGrid').innerHTML = KP.map((k) => kpiCard(k)).join('');
+
+    // Platform notice
+    const notices = [];
+    if (a.poller && a.poller.active) notices.push({ strong: 'OTP poller is running', sub: 'Interval ' + a.poller.intervalMs / 1000 + 's · last run ' + timeAgo(a.poller.lastRunAt), ic: 'signal' });
+    else notices.push({ strong: 'OTP poller is stopped', sub: 'New numbers will not receive OTP until it starts.', ic: 'alert' });
+    if (a.avgOtpSec != null) notices.push({ strong: 'Fast OTP delivery', sub: 'Average wait ' + a.avgOtpSec + 's across all completed orders.', ic: 'clock' });
+    notices.push({ strong: 'Number inventory', sub: stats.availableNumbers + ' ready numbers across ' + stats.platforms + ' platforms and ' + stats.countries + ' countries.', ic: 'services' });
+    document.getElementById('noticeList').innerHTML = notices.map((n) =>
+      '<li><span class="n-ic">' + uiIcon(n.ic, 16) + '</span><div><b>' + esc(n.strong) + '</b><p>' + esc(n.sub) + '</p></div></li>').join('');
+
+    // Message center — latest tickets
+    const tickets = (tk && tk.tickets) || [];
+    const msgBadge = tickets.filter((t) => t.status === 'pending').length;
+    document.getElementById('noticeBadge').textContent = msgBadge + ' open';
+    const el = document.getElementById('messageList');
+    if (!tickets.length) {
+      el.innerHTML = emptyState({ icon: 'inbox', title: 'No tickets yet', sub: 'Support requests from users will appear here.' });
+    } else {
+      el.innerHTML = tickets.slice(0, 4).map((t) =>
+        '<div class="msg-item">' + avatarHtml(t.user) +
+        '<div style="min-width:0"><div style="font-size:13px;font-weight:700;color:var(--text)">' + esc(t.user) + '</div>' +
+        '<div class="txt-clamp" style="font-size:12.5px;color:var(--muted)">' + esc(t.subject) + '</div></div>' +
+        '<span class="ml-auto badge ' + (t.status === 'pending' ? 'amber' : t.status === 'answered' ? 'blue' : 'green') + '">' + esc(t.status) + '</span></div>').join('');
+    }
+
+    // charts
+    document.getElementById('chOrders').innerHTML = svgBar(a.daily.map((d) => ({ l: d.label, v: d.orders, v2: d.completed })), { color: '#2563eb', color2: '#c7d2fe' });
+    document.getElementById('chRevenue').innerHTML = svgLineArea(a.daily.map((d) => ({ l: d.label, v: d.revenue })));
+
+    const parts = a.statusDist.filter((p) => p.value > 0).map((p) => ({ name: p.name, value: p.value }));
+    if (parts.length) {
+      document.getElementById('chDonut').innerHTML = donut(parts, 150);
+      document.getElementById('donutLabels').innerHTML = parts.map((p) =>
+        '<div class="dl"><span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + DL[p.name] + ';margin-right:6px"></i>' + STATUS_L[p.name] + '</span><b>' + p.value + '</b></div>').join('');
+    } else {
+      document.getElementById('donutLabels').innerHTML = '<div class="small">No data yet</div>';
+    }
+
+    document.getElementById('chPlatforms').innerHTML = a.platformDist.length
+      ? hbars(a.platformDist.map((p) => ({ name: p.name, v: p.orders })), a.platformDist[0].orders)
+      : '<div class="small">No data yet</div>';
+    document.getElementById('chCountries').innerHTML = a.countryDist.length
+      ? hbars(a.countryDist.map((c) => ({ name: c.name, v: c.orders })), a.countryDist[0].orders)
+      : '<div class="small">No data yet</div>';
+
+    // recent orders
+    const wrap = document.getElementById('recentWrap');
+    if (!st.recentOrders.length) {
+      wrap.innerHTML = emptyState({ icon: 'orders', title: 'No orders yet', sub: 'Orders placed by users will show up here.' });
+      return;
+    }
+    wrap.innerHTML =
+      '<table><thead><tr><th>Order</th><th>User</th><th>Platform</th><th>Country</th><th>Number</th><th>Price</th><th>OTP</th><th>Status</th><th>Time</th></tr></thead><tbody>' +
+      st.recentOrders.map((o) =>
+        '<tr>' +
+        '<td class="mono">' + esc(o.orderId) + '</td>' +
+        '<td>' + esc(o.user) + '</td>' +
+        '<td><span class="mini-logo">' + platformLogo(o.platform, 16) + '</span> ' + esc(o.platform) + '</td>' +
+        '<td>' + (countryFlag(o.country) || '') + ' ' + esc(o.country) + '</td>' +
+        '<td class="mono">' + esc(o.number) + '</td>' +
+        '<td>' + fmtNum(o.price) + '</td>' +
+        '<td class="mono">' + esc(o.otpCode || '—') + '</td>' +
+        '<td><span class="badge ' + (STATUS_B[o.status] || 'grey') + '">' + (STATUS_L[o.status] || o.status) + '</span></td>' +
+        '<td class="small">' + timeAgo(o.createdAt) + '</td>' +
+        '</tr>').join('') +
+      '</tbody></table>';
+  } catch (e) { toast(e.message, 'err'); }
+})();
+</script>
+</body>
+</html>

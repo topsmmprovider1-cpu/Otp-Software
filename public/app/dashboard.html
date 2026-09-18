@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buy Numbers — My Account</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .qty-cell { display:flex; flex-direction:column; gap:6px; }
+  .qty-bar { height:5px; border-radius:99px; background:var(--panel2); overflow:hidden; width:110px; }
+  .qty-bar span { display:block; height:100%; background:var(--accent); border-radius:99px; }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+
+  <main class="admin-main">
+    <div class="page-head">
+      <div>
+        <h1>Buy Numbers</h1>
+        <p class="sub">Choose a platform, pick a country and click Get Number — OTP auto-pull starts instantly after purchase.</p>
+      </div>
+      <div class="ph-actions">
+        <a class="btn sm" href="/app/wallet" id="balBtn">Top up wallet</a>
+      </div>
+    </div>
+
+    <div class="tips">
+      <div class="tips-ic" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;background:var(--blue-bg);border-radius:50%">i</div>
+      <div>
+        <div class="tips-title">How it works</div>
+        <ol>
+          <li>Filter platforms by country using the operator chips below.</li>
+          <li>Review available quantity and unit price in USD.</li>
+          <li>Click <b>Get Number</b> — balance is deducted and OTP pulling starts automatically.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="row" style="margin-bottom:6px;gap:12px;flex-wrap:wrap;align-items:center">
+      <span class="ra-lbl" style="font-size:12px;font-weight:600;color:var(--muted)">Operator</span>
+      <div class="op-chips" id="countryChips"><div class="op-chip active" data-c="">All</div></div>
+    </div>
+
+    <div class="table-toolbar">
+      <button class="btn ghost sm" onclick="loadServices()" style="display:inline-flex;align-items:center;gap:7px" id="refreshBtn">Refresh</button>
+      <button class="btn sm" id="mergeBtn" disabled style="display:inline-flex;align-items:center;gap:7px;opacity:.55;cursor:not-allowed" onclick="mergeBuy()">Multiple Projects Merge Buy</button>
+      <span class="spacer"></span>
+      <div class="search-box" style="min-width:220px;max-width:320px"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input class="input" id="fSearch" placeholder="Search platform or country..." style="width:100%"></div>
+    </div>
+
+    <div class="bulk-bar hidden" id="bulkBar">
+      <div class="bb-info"><b id="selCount">0</b> selected</div>
+      <button class="btn ghost sm" onclick="clearSel()">Clear</button>
+      <button class="btn solid sm" onclick="mergeBuy()" id="bulkMerge">Merge buy (0)</button>
+    </div>
+
+    <div class="table-wrap" id="tableWrap"><table><thead><tr><th style="width:42px"><input type="checkbox" class="row-check" id="selAll"></th><th style="width:56px">ID</th><th style="min-width:160px">Project Name</th><th style="width:140px">Remaining Quantity</th><th style="width:130px">Unit Price (USD)</th><th style="width:120px;text-align:right">Operate</th></tr></thead><tbody id="tbody"></tbody></table></div>
+    <div class="count" id="countInfo" style="margin-top:8px"></div>
+  </main>
+</div>
+
+<!-- buy modal -->
+<div class="modal-bg hidden" id="buyModal">
+  <div class="modal">
+    <h3 id="buyTitle">Confirm purchase</h3>
+    <p class="sub" id="buyDesc"></p>
+    <div class="row" style="display:flex;gap:14px;align-items:center">
+      <div style="flex:1;background:var(--panel2);padding:16px;border-radius:12px;text-align:center">
+        <div class="small">PLATFORM</div><div style="font-weight:800;font-size:18px" id="buyPlatform">-</div>
+      </div>
+      <div style="flex:1;background:var(--panel2);padding:16px;border-radius:12px;text-align:center">
+        <div class="small">COUNTRY</div><div style="font-weight:800;font-size:18px" id="buyCountry">-</div>
+      </div>
+      <div style="flex:1;background:var(--panel2);padding:16px;border-radius:12px;text-align:center">
+        <div class="small">PRICE</div><div style="font-weight:800;font-size:18px;color:var(--accent)" id="buyPrice">-</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn solid" id="btnConfirm" onclick="confirmBuy()">Buy now</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/app/user-sidebar.js"></script>
+<script>
+mountUserSidebar('buy');
+
+let allPlatforms = [];
+let services = []; // flattened rows
+let sel = new Set();
+let countryFilter = '';
+let buyTarget = null;
+
+// --- country chips ---
+function buildCountryChips(countries) {
+  const el = document.getElementById('countryChips');
+  let html = '<div class="op-chip active" data-c="">All</div>';
+  countries.forEach((c) => { html += '<div class="op-chip" data-c="' + esc(c.name) + '">' + esc(c.name) + ' <span style="opacity:.6">' + c.count + '</span></div>'; });
+  el.innerHTML = html;
+}
+
+document.getElementById('countryChips').addEventListener('click', (e) => {
+  const chip = e.target.closest('.op-chip');
+  if (!chip) return;
+  document.querySelectorAll('#countryChips .op-chip').forEach((c) => c.classList.remove('active'));
+  chip.classList.add('active');
+  countryFilter = chip.dataset.c || '';
+  renderTable();
+});
+
+// --- table ---
+function renderTable() {
+  const q = (document.getElementById('fSearch').value || '').toLowerCase();
+  const tbody = document.getElementById('tbody');
+  let html = '';
+  let idx = 0;
+  for (const r of services) {
+    if (countryFilter && r.country !== countryFilter) continue;
+    if (q && !r.platform.toLowerCase().includes(q) && !r.country.toLowerCase().includes(q)) continue;
+    idx++;
+    const key = r.platform + '|' + r.country;
+    const checked = sel.has(key) ? ' checked' : '';
+    const stock = r.count > 0;
+    html += '<tr data-k="' + esc(key) + '" style="opacity:' + (stock ? '1' : '.55') + '">'
+      + '<td><input type="checkbox" class="row-check x-check"' + checked + ' data-k="' + esc(key) + '"></td>'
+      + '<td class="mono" style="font-size:12.5px;color:var(--muted2)">#' + String(idx).padStart(3, '0') + '</td>'
+      + '<td><div class="proj-cell"><span class="proj-ic" style="background:var(--panel2)">' + platformLogo(r.platform, 20) + '</span>'
+      + '<div><div class="proj-name">' + esc(r.platform) + '</div>'
+      + '<div class="proj-sub">' + countryCell(r.country) + '</div></div></div></td>'
+      + '<td><div class="qty-cell"><span><span class="badge ' + (stock ? 'green' : 'red') + '">' + r.count + '</span> <span class="small" style="color:var(--muted2)">available</span></span>'
+      + '<div class="qty-bar" style="display:' + (stock ? 'block' : 'none') + '"><span style="width:' + Math.max(4, Math.min(100, Math.round(r.count / 20 * 100))) + '%"></span></div></div></td>'
+      + '<td class="mono" style="font-size:13.5px">' + fmtNum(r.price) + '</td>'
+      + '<td style="text-align:right"><button class="btn sm' + (stock ? ' solid' : '') + '"' + (stock ? '' : ' disabled') + ' data-k="' + esc(key) + '" onclick="event.stopPropagation();rowBuy(this)">Get Number</button></td>'
+      + '</tr>';
+  }
+  tbody.innerHTML = html || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:50px 0">No services match your filter.</td></tr>';
+  document.getElementById('countInfo').textContent = idx + ' row(s) shown';
+  updateBulkBar();
+}
+
+function rowBuy(btn) {
+  const k = btn.dataset.k;
+  const [p, c] = k.split('|');
+  openBuy(p, c);
+}
+
+// select all / row checkboxes
+document.getElementById('selAll').addEventListener('change', (e) => {
+  document.querySelectorAll('.x-check').forEach((cb) => { cb.checked = e.target.checked; toggleSel(cb.dataset.k, e.target.checked); });
+  updateBulkBar();
+});
+document.getElementById('tbody').addEventListener('change', (e) => {
+  if (e.target.classList.contains('x-check')) { toggleSel(e.target.dataset.k, e.target.checked); updateBulkBar(); }
+});
+function toggleSel(k, on) { if (on) sel.add(k); else sel.delete(k); }
+function clearSel() { sel.clear(); document.getElementById('selAll').checked = false; document.querySelectorAll('.x-check').forEach((cb) => cb.checked = false); updateBulkBar(); }
+function updateBulkBar() {
+  const n = sel.size;
+  document.getElementById('selCount').textContent = n;
+  document.getElementById('bulkMerge').textContent = 'Merge buy (' + n + ')';
+  document.getElementById('bulkBar').classList.toggle('hidden', n === 0);
+  const mb = document.getElementById('mergeBtn');
+  mb.disabled = n < 2;
+  mb.style.opacity = n < 2 ? '.55' : '1';
+  mb.style.cursor = n < 2 ? 'not-allowed' : 'pointer';
+}
+
+// --- merge buy (sequential) ---
+async function mergeBuy() {
+  if (!sel.size) return;
+  const btn = document.getElementById('mergeBtn');
+  const bbtn = document.getElementById('bulkMerge');
+  btn.disabled = true; bbtn.disabled = true;
+  const origText = bbtn.textContent;
+  let ok = 0, fail = 0;
+  for (const k of [...sel]) {
+    const [p, c] = k.split('|');
+    bbtn.textContent = 'Buying ' + (ok + fail + 1) + '/' + sel.size + '...';
+    try { await API.post('/api/orders', { platform: p, country: c }); ok++; } catch (e) { fail++; toast(p + ' (' + c + '): ' + e.message, 'err'); }
+  }
+  bbtn.textContent = origText;
+  btn.disabled = false; bbtn.disabled = false;
+  toast(ok + ' purchased' + (fail ? ', ' + fail + ' failed' : ''), ok ? 'success' : 'err');
+  refreshSideBalance();
+  if (ok) loadServices();
+}
+
+// --- buy modal ---
+function openBuy(p, c) {
+  buyTarget = { platform: p, country: c };
+  document.getElementById('buyTitle').textContent = 'Confirm purchase';
+  document.getElementById('buyPlatform').textContent = esc(p);
+  document.getElementById('buyCountry').textContent = (countryFlag(c) || '') + ' ' + esc(c);
+  document.getElementById('buyPrice').textContent = fmtNum(getPrice(p, c));
+  document.getElementById('buyDesc').textContent = 'Buy a ' + esc(p) + ' number for ' + esc(c) + '? Amount will be deducted from your wallet.';
+  document.getElementById('buyModal').classList.remove('hidden');
+}
+function closeModal() { document.getElementById('buyModal').classList.add('hidden'); buyTarget = null; }
+function getPrice(p, c) { const svc = services.find((s) => s.platform === p && s.country === c); return svc ? svc.price : 0; }
+
+async function confirmBuy() {
+  if (!buyTarget) return;
+  const btn = document.getElementById('btnConfirm');
+  btn.disabled = true; btn.textContent = 'Processing...';
+  try {
+    const { order } = await API.post('/api/orders', { platform: buyTarget.platform, country: buyTarget.country });
+    toast('Number purchased! OTP pulling started for ' + order.number);
+    refreshSideBalance();
+    setTimeout(() => { window.location.href = '/app/orders'; }, 350);
+  } catch (e) {
+    toast(e.message, 'err');
+    btn.disabled = false; btn.textContent = 'Buy now';
+  }
+}
+
+// --- load data ---
+async function loadServices() {
+  try {
+    const { platforms, countries } = await API.get('/api/services');
+    allPlatforms = platforms;
+    services = [];
+    for (const p of platforms) for (const c of p.countries) {
+      services.push({ platform: p.platform, country: c.country, price: c.price, count: c.count });
+    }
+    buildCountryChips(countries || []);
+    renderTable();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+(async function init() {
+  const me = await refreshMe();
+  if (!me) { window.location.href = loginUrl(); return; }
+  setSideBalance(me.balance);
+  document.getElementById('balBtn').textContent = 'Balance ' + fmtNum(me.balance) + ' · Top up';
+  await loadServices();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Home · My Account</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .quick-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin-bottom:16px; }
+  .quick-box { background:#fff; border:1px solid var(--border); border-radius:14px; padding:18px; display:flex; align-items:center; gap:14px; text-decoration:none; color:var(--text); box-shadow:0 2px 12px rgba(15,23,42,.05); transition:.15s; }
+  .quick-box:hover { border-color:var(--accent); transform:translateY(-2px); }
+  .quick-box .q-ic { width:44px; height:44px; border-radius:11px; background:linear-gradient(135deg,rgba(37,99,235,.12),rgba(14,165,233,.12)); color:var(--accent); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .quick-box b { font-size:14.5px; }
+  .quick-box .q-sub { font-size:12px; color:var(--muted); margin-top:2px; }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>Dashboard</h1><p class="sub" id="subLine">Loading...</p></div>
+      <a class="btn solid" href="/app/dashboard">Buy number</a>
+    </div>
+
+    <div class="stats-grid" id="statsGrid"></div>
+
+    <div class="quick-grid" style="margin-top:16px">
+      <a class="quick-box" href="/app/dashboard"><span class="q-ic" id="quBuy"></span><div><b>Buy Number</b><div class="q-sub">Get OTP instantly</div></div></a>
+      <a class="quick-box" href="/app/orders"><span class="q-ic" id="quOrders"></span><div><b>Order History</b><div class="q-sub">Track all your orders</div></div></a>
+      <a class="quick-box" href="/app/wallet"><span class="q-ic" id="quWallet"></span><div><b>Wallet</b><div class="q-sub">Top up &amp; view balance</div></div></a>
+      <a class="quick-box" href="/app/api-docs"><span class="q-ic" id="quApi"></span><div><b>API Access</b><div class="q-sub">Use our HTTP API</div></div></a>
+      <a class="quick-box" href="/app/tickets"><span class="q-ic" id="quTickets"></span><div><b>Support</b><div class="q-sub">Tickets &amp; help</div></div></a>
+      <a class="quick-box" href="/app/account"><span class="q-ic" id="quAccount"></span><div><b>Account</b><div class="q-sub">Profile &amp; API key</div></div></a>
+    </div>
+
+    <div class="section-title">Recent orders</div>
+    <div class="table-wrap" id="ordWrap"><table><tr><td class="center">Loading...</td></tr></table></div>
+  </main>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/app/user-sidebar.js"></script>
+<script>
+const B = { pending: 'amber', completed: 'green', cancelled: 'red', expired: 'red' };
+const L = { pending: 'Pending', completed: 'Completed', cancelled: 'Cancelled', expired: 'Expired' };
+
+function setIco(id, name) { document.getElementById(id).innerHTML = uiIcon(name, 22); }
+
+(async function init() {
+  mountUserSidebar('index');
+  setIco('quBuy', 'numbers'); setIco('quOrders', 'orders'); setIco('quWallet', 'wallet');
+  setIco('quApi', 'key'); setIco('quTickets', 'flag'); setIco('quAccount', 'edit');
+
+  const user = await refreshMe();
+  if (!user) { window.location.href = loginUrl(); return; }
+
+  const [me, ordersRes] = await Promise.all([
+    API.get('/api/me'),
+    API.get('/api/orders'),
+  ]);
+  setSideBalance(me.balance);
+  const orders = ordersRes.orders || [];
+  const spent = orders.filter((o) => o.status === 'completed').reduce((a, o) => a + Number(o.price || 0), 0);
+  const pending = orders.filter((o) => o.status === 'pending').length;
+  const completed = orders.filter((o) => o.status === 'completed').length;
+
+  document.getElementById('subLine').textContent =
+    'Welcome ' + (user.fullName || user.email) + ' — you have ' + pending + ' active order(s) and ' + completed + ' completed.';
+
+  const KP = [
+    ['Balance', me.balance, ''] ,
+    ['Total Spent', spent, 'color:var(--green)'],
+    ['Orders', orders.length, ''],
+    ['Completed', completed, 'color:var(--green)'],
+  ];
+  document.getElementById('statsGrid').innerHTML = KP.map(([l, v, st]) =>
+    '<div class="stat-card"><div class="num" style="' + st + '">' + (l === 'Balance' || l === 'Total Spent' ? fmtNum(v) : esc(v)) + '</div><div class="lbl">' + l + '</div></div>').join('');
+
+  const wrap = document.getElementById('ordWrap');
+  if (!orders.length) {
+    wrap.innerHTML = '<div class="card center" style="padding:30px;color:var(--muted)">No orders yet. <a href="/app/dashboard">Buy your first number →</a></div>';
+    return;
+  }
+  wrap.innerHTML =
+    '<table><thead><tr><th>Order</th><th>Platform</th><th>Country</th><th>Number</th><th>Price</th><th>OTP</th><th>Status</th><th>When</th></tr></thead><tbody>' +
+    orders.slice(0, 8).map((o) =>
+      '<tr>' +
+      '<td class="mono">' + esc(o.orderId) + '</td>' +
+      '<td><span class="mini-logo">' + platformLogo(o.platform, 14) + '</span>' + esc(o.platform) + '</td>' +
+      '<td>' + (countryFlag(o.country) || '') + ' ' + esc(o.country) + '</td>' +
+      '<td class="mono">' + esc(o.number) + '</td>' +
+      '<td>' + fmtNum(o.price) + '</td>' +
+      '<td class="mono" style="color:var(--green);font-weight:700">' + esc(o.otpCode || '—') + '</td>' +
+      '<td><span class="badge ' + (B[o.status] || 'grey') + '">' + (L[o.status] || o.status) + '</span></td>' +
+      '<td class="small">' + timeAgo(o.createdAt) + '</td>' +
+      '</tr>').join('') +
+    '</tbody></table>';
+})();
+</script>
+</body>
+</html>

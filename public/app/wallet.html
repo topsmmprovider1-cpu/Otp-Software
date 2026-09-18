@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wallet · My Account</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .wallet-hero { background:linear-gradient(135deg,#0f172a,#1e293b); border-radius:16px; padding:22px; color:#fff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; }
+  .wallet-hero .wh-lbl { font-size:12px; letter-spacing:1px; text-transform:uppercase; opacity:.65; }
+  .wallet-hero .wh-num { font-size:32px; font-weight:800; margin-top:2px; }
+  .wallet-hero .wh-note { font-size:12px; opacity:.75; margin-top:4px; }
+  .entry { display:flex; align-items:center; gap:12px; }
+  .entry .e-ic { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .entry .e-note { color:var(--muted); font-size:12px; margin-top:2px; }
+  .pay-card { border:1px solid var(--border); border-radius:14px; padding:18px; background:var(--panel); }
+  .step-lbl { font-size:11px; font-weight:800; letter-spacing:1px; text-transform:uppercase; color:var(--muted2); }
+  .qr-box { width:240px; aspect-ratio:1; border-radius:14px; overflow:hidden; border:1px solid var(--border); background:#fff; display:flex; align-items:center; justify-content:center; }
+  .qr-box img { width:100%; height:100%; object-fit:contain; }
+  .upi-row { display:flex; align-items:center; gap:8px; }
+  .note-box { background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; font-size:13px; color:var(--muted); white-space:pre-line; }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>Wallet</h1><p class="sub">Balance, top-ups and full transaction history.</p></div>
+    </div>
+
+    <div class="wallet-hero">
+      <div>
+        <div class="wh-lbl">Available balance</div>
+        <div class="wh-num" id="balNum">$0.00</div>
+        <div class="wh-note">Purchases deduct instantly. Refunds apply on cancel/expire — not on delivered OTP.</div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px;align-items:start">
+      <div>
+        <div class="pay-card" id="payCard">
+          <b class="section-title">Add funds — UPI</b>
+          <div id="payDisabled" class="note-box" style="display:none;margin-top:12px">Online deposits are currently disabled. Please contact support.</div>
+
+          <div class="step-lbl" style="margin-top:14px">1. Enter amount</div>
+          <div class="flex" style="gap:10px;margin-top:8px;align-items:center">
+            <div style="position:relative;flex:1">
+              <span style="position:absolute;left:12px;top:10px;font-weight:700;color:var(--muted)">₹</span>
+              <input class="input" id="amt" type="number" step="1" min="1" placeholder="100" style="padding-left:30px">
+            </div>
+            <span class="small" id="creditEst" style="color:var(--muted2)"></span>
+          </div>
+
+          <div class="step-lbl" style="margin-top:16px">2. Scan &amp; pay</div>
+          <div class="flex" style="gap:16px;margin-top:8px;align-items:center;flex-wrap:wrap">
+            <div class="qr-box" id="qrBox">
+              <div class="small" style="color:var(--muted2);text-align:center;padding:10px">Enter an<br>amount first</div>
+            </div>
+            <div id="payInfo" style="max-width:260px;min-width:200px">
+              <div class="upi-row" id="payeeName" style="display:none"></div>
+              <div class="upi-row" style="margin-top:8px;display:none" id="upiRow">
+                <input class="input" id="upiId" readonly style="flex:1;font-family:Consolas,monospace">
+                <button class="btn sm" onclick="copyUpi()">Copy</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-lbl" style="margin-top:16px">3. Verify payment</div>
+          <p class="small" style="color:var(--muted);margin:6px 0 0">Paid the exact amount? Enter the UTR/reference number from your UPI app and confirm.</p>
+          <div class="flex" style="gap:10px;margin-top:10px">
+            <input class="input" id="utr" placeholder="UTR / reference ID" style="flex:1;font-family:Consolas,monospace">
+            <button class="btn solid" id="btnVerify" onclick="verify()">Verify &amp; confirm</button>
+          </div>
+          <div id="feeNote" class="note-box" style="display:none;margin-top:10px"></div>
+          <div id="instr" class="note-box" style="display:none;margin-top:8px"></div>
+        </div>
+
+      </div>
+
+      <div>
+        <div class="section-title">Top-up history</div>
+        <div class="table-wrap" id="payWrap"><table><tr><td class="center">Loading...</td></tr></table></div>
+
+        <div class="section-title" style="margin-top:20px">Wallet activity</div>
+        <div class="table-wrap" id="entriesWrap"><table><tr><td class="center">Loading...</td></tr></table></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/app/user-sidebar.js"></script>
+<script>
+mountUserSidebar('wallet');
+
+const TYPE_META = {
+  deposit:    ['green',  'Deposit',    '+', 'wallet'],
+  purchase:   ['blue',   'Purchase',   '-', 'money'],
+  refund:     ['amber',  'Refund',     '+', 'money'],
+  adjustment: ['purple', 'Adjustment', '',  'edit'],
+};
+
+let payCfg = { mode: 'upi', currency: 'USD', enabled: false, min: 0, rate: 0, feePct: 0, instructions: '' };
+let curSymbol = '$';
+let lastQrSrc = '';
+let lastUpiUri = '';
+
+function creditFor(amountInr) {
+  let net = amountInr;
+  if (payCfg.feePct > 0) net = net * (1 - payCfg.feePct / 100);
+  return net * (payCfg.rate || 0.012);
+}
+
+function updateEstimate() {
+  const amt = parseFloat(document.getElementById('amt').value);
+  const est = document.getElementById('creditEst');
+  if (amt && amt > 0) est.textContent = '≈ ' + curSymbol + creditFor(amt).toFixed(2);
+  else est.textContent = '';
+  renderQr();
+}
+
+async function renderQr() {
+  const amt = parseFloat(document.getElementById('amt').value);
+  if (!amt || amt <= 0 || payCfg.mode === 'qr') return;
+  if (!payCfg.upiId) { return; }
+  const uri = 'upi://pay?pa=' + encodeURIComponent(payCfg.upiId) + '&pn=' + encodeURIComponent(payCfg.payee) + '&am=' + amt + '&cu=INR';
+  lastUpiUri = uri;
+  const src = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=' + encodeURIComponent(uri);
+  document.getElementById('qrBox').innerHTML = '<img src="' + src + '" alt="UPI QR">';
+  lastQrSrc = src;
+}
+
+async function initPayment() {
+  try { payCfg = await API.get('/api/shop/payment'); } catch (e) { }
+  const enabled = !!payCfg.enabled;
+  document.getElementById('payDisabled').style.display = enabled ? 'none' : 'block';
+  const fields = ['payee', 'qr', 'upiId', 'rate', 'feePct', 'min', 'instructions'];
+  fields.forEach((f) => { if (payCfg[f] === undefined) payCfg[f] = ''; });
+  curSymbol = payCfg.currency === 'INR' ? '₹' : '$';
+  document.getElementById('feeNote').style.display = (parseFloat(payCfg.feePct) || 0) > 0 ? 'block' : 'none';
+  document.getElementById('feeNote').textContent = 'A gateway fee of ' + payCfg.feePct + '% applies.';
+  const instr = document.getElementById('instr');
+  if (payCfg.instructions) {
+    instr.style.display = 'block';
+    instr.textContent = payCfg.instructions;
+  }
+  if (payCfg.mode === 'qr' && payCfg.qr) {
+    document.getElementById('qrBox').innerHTML = '<img src="' + payCfg.qr + '" alt="Payment QR">';
+  }
+  if (payCfg.upiId) {
+    document.getElementById('upiRow').style.display = 'flex';
+    document.getElementById('upiId').value = payCfg.upiId;
+  }
+  if (payCfg.payee) {
+    document.getElementById('payeeName').style.display = 'flex';
+    document.getElementById('payeeName').innerHTML = '<b style="font-size:15px">' + esc(payCfg.payee) + '</b>';
+  }
+}
+
+window.updateEstimate = updateEstimate;
+window.copyUpi = function () {
+  navigator.clipboard.writeText(payCfg.upiId || '').then(() => toast('UPI ID copied'));
+};
+
+const verifyLock = { on: false };
+window.verify = async function () {
+  const amt = parseFloat(document.getElementById('amt').value);
+  const utr = document.getElementById('utr').value.trim();
+  if (!amt || amt <= 0) { toast('Enter the amount you paid', 'err'); return; }
+  if (parseFloat(payCfg.min) > 0 && amt < parseFloat(payCfg.min)) { toast('Minimum deposit is ₹' + payCfg.min, 'err'); return; }
+  if (!utr) { toast('Enter the UTR / reference ID from your UPI app', 'err'); return; }
+  if (verifyLock.on) return;
+  verifyLock.on = true;
+  const btn = document.getElementById('btnVerify');
+  btn.disabled = true;
+  btn.textContent = 'Verifying…';
+  try {
+    const r = await API.post('/api/payments/verify', { utr, amount: amt });
+    toast(r.msg);
+    document.getElementById('balNum').textContent = fmtNum(r.balance);
+    setSideBalance(r.balance);
+    document.getElementById('utr').value = '';
+    await loadPayments();
+    await loadEntries();
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Verify & confirm';
+    verifyLock.on = false;
+  }
+};
+
+async function loadPayments() {
+  const { payments = [] } = await API.get('/api/payments');
+  const wrap = document.getElementById('payWrap');
+  if (!payments.length) {
+    wrap.innerHTML = '<div class="card center" style="padding:24px;color:var(--muted)">No top-ups yet.</div>';
+    return;
+  }
+  wrap.innerHTML =
+    '<table><thead><tr><th>UTR</th><th>Paid (₹)</th><th>Credited</th><th>Status</th><th>Date</th></tr></thead><tbody>' +
+    payments.map((p) =>
+      '<tr><td class="mono">' + esc(p.utr) + '</td>' +
+      '<td>₹' + Number(p.amount).toFixed(2) + '</td>' +
+      '<td><b class="mono" style="color:var(--green)">' + fmtNum(p.credit || 0) + '</b></td>' +
+      '<td><span class="badge ' + (p.status === 'approved' ? 'green' : p.status === 'pending' ? 'amber' : 'red') + '">' + esc(p.status) + '</span></td>' +
+      '<td class="small">' + timeAgo(p.createdAt) + '</td></tr>').join('') +
+    '</tbody></table>';
+}
+
+async function loadEntries() {
+  const { entries } = await API.get('/api/me/wallet');
+  const wrap = document.getElementById('entriesWrap');
+  if (!entries.length) {
+    wrap.innerHTML = '<div class="card center" style="padding:24px;color:var(--muted)">No transactions yet — buy a number or top up.</div>';
+    return;
+  }
+  wrap.innerHTML =
+    '<table><thead><tr><th>Type</th><th>Detail</th><th>Amount</th><th>Date</th></tr></thead><tbody>' +
+    entries.map((e) => {
+      const meta = TYPE_META[e.type] || ['grey', e.type, ''];
+      const label = meta[1]; const sign = meta[2];
+      const color = (label === 'Deposit' || label === 'Refund') ? 'var(--green)' : (label === 'Purchase' ? 'var(--accent)' : 'var(--text)');
+      const bg = (label === 'Deposit' || label === 'Refund') ? 'rgba(16,185,129,.12)' : 'rgba(37,99,235,.12)';
+      return '<tr>' +
+        '<td><div class="entry"><span class="e-ic" style="background:' + bg + ';color:' + color + '">' + uiIcon(meta[3] || 'wallet', 18) + '</span>' +
+        '<div><span style="font-size:11px;font-weight:800;text-transform:uppercase;color:' + color + '">' + label + '</span><div class="e-note">' + esc(e.note || '') + '</div></div></div></td>' +
+        '<td class="mono">' + esc(e.id) + '</td>' +
+        '<td><b style="color:' + (sign === '+' ? 'var(--green)' : 'var(--text)') + '">' + sign + fmtNum(Number(e.amount)) + '</b></td>' +
+        '<td class="small">' + timeAgo(e.created_at) + '</td>' +
+        '</tr>';
+    }).join('') +
+    '</tbody></table>';
+}
+
+document.getElementById('amt').addEventListener('input', updateEstimate);
+
+(async function init() {
+  mountUserSidebar('wallet');
+  const me = await refreshMe();
+  if (!me) { window.location.href = loginUrl(); return; }
+  setSideBalance(me.balance);
+  document.getElementById('balNum').textContent = fmtNum(me.balance);
+  await initPayment();
+  await Promise.all([loadPayments(), loadEntries()]).catch(() => {});
+})();
+</script>
+</body>
+</html>

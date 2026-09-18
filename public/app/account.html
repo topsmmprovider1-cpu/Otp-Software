@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Account & API Key · My Account</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .two-col { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; margin-bottom:16px; }
+  .card h3 { margin:0 0 4px; }
+  .form-row { margin-bottom:12px; }
+  .form-row label { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; display:block; margin-bottom:5px; }
+  .field { width:100%; box-sizing:border-box; }
+  .key-box { display:flex; gap:8px; align-items:center; }
+  .key-box .input { flex:1; font-family:Consolas,monospace; font-size:12.5px; }
+  .api-row { display:flex; justify-content:space-between; align-items:center; gap:10px; border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; background:var(--bg2); }
+  .api-row .lbl { font-weight:700; }
+  .api-row .sub { font-size:12px; color:var(--muted); }
+  .api-row code { font-size:12px; }
+  .warn { font-size:12px; color:var(--muted); margin-top:6px; }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>Account & API Key</h1><p class="sub">Edit profile, change password and manage external API access keys.</p></div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <h3>Profile</h3>
+        <p class="sub" style="margin-top:2px">These details are also exposed on the external API <code>/me</code> endpoint.</p>
+        <div class="form-row"><label>Full name</label><input class="input field" id="inName"></div>
+        <div class="form-row"><label>Email</label><input class="input field" id="inEmail" type="email"></div>
+        <div class="form-row"><label>Phone</label><input class="input field" id="inPhone" placeholder="(optional)"></div>
+        <button class="btn solid" onclick="saveProfile()">Save profile</button>
+      </div>
+
+      <div class="card">
+        <h3>Change password</h3>
+        <p class="sub" style="margin-top:2px">Leave the password fields empty if you only want to update your profile.</p>
+        <div class="form-row"><label>Current password</label><input class="input field" id="inCur" type="password"></div>
+        <div class="form-row"><label>New password</label><input class="input field" id="inNew" type="password" minlength="5"></div>
+        <button class="btn solid" onclick="changePass()">Update password</button>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div>
+            <h3>Devices & sessions</h3>
+            <p class="sub" style="margin-top:2px">Devices signed in to your account. A session is a device that keeps you logged in via a refresh token.</p>
+          </div>
+          <button class="btn solid" onclick="signOutOthers()">Sign out other devices</button>
+        </div>
+        <div id="sessWrap" style="margin-top:12px"><div class="center" style="color:var(--muted);padding:16px">Loading...</div></div>
+      </div>
+
+      <div class="card">
+        <h3>Recent activity</h3>
+        <p class="sub" style="margin-top:2px">Sign-ins, sign-outs and security events on your account.</p>
+        <div id="actWrap" style="margin-top:12px"><div class="center" style="color:var(--muted);padding:16px">Loading...</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div>
+          <h3>API Keys</h3>
+          <p class="sub" style="margin-top:2px">For the external OTP API — docs: <a href="/app/api-docs">API Docs</a>. Request auth: <code>Authorization: Bearer &lt;key&gt;</code></p>
+        </div>
+        <button class="btn solid" onclick="genKey()">Generate new key</button>
+      </div>
+      <div id="keysWrap" style="margin-top:12px"><div class="center" style="color:var(--muted);padding:16px">Loading...</div></div>
+    </div>
+  </main>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/app/user-sidebar.js"></script>
+<script>
+mountUserSidebar('account');
+
+function copy(txt, msg) {
+  navigator.clipboard.writeText(txt).then(() => toast(msg)).catch(() => toast('Copy failed', 'err'));
+}
+
+function loadKeys(keys) {
+  const wrap = document.getElementById('keysWrap');
+  if (!keys.length) {
+    wrap.innerHTML = '<div class="center" style="color:var(--muted);padding:8px">No API keys yet — generate one to use the external API.</div>';
+    return;
+  }
+  wrap.innerHTML = keys.map((k) =>
+    '<div class="api-row"><div style="min-width:0">' +
+      '<div class="lbl">' + esc(k.label) + '</div>' +
+      '<div class="sub">Created ' + timeAgo(k.createdAt) + ' · last used ' + (k.lastUsed ? timeAgo(k.lastUsed) : 'never') + '</div>' +
+    '</div>' +
+    '<code>' + esc(String(k.apiKey).slice(0, 18)) + '…</code>' +
+    '<div style="display:flex;gap:6px">' +
+      '<button class="btn icon-only" title="Deactivate/Revoke" onclick="revoke(' + k.id + ')">' + uiIcon('trash', 15) + '</button>' +
+    '</div></div>').join('');
+}
+
+async function genKey() {
+  try {
+    const r = await API.post('/api/me/api-keys', { label: 'My App' });
+    toast(r.msg);
+    // show full key once in a modal-style overlay
+    const full = r.apiKey.apiKey;
+    document.getElementById('keysWrap').insertAdjacentHTML('beforebegin',
+      '<div class="card" style="border:1px solid var(--accent);background:rgba(37,99,235,.04)"><div class="form-row"><label style="color:var(--accent)">NEW KEY — copy it now, it is shown only once</label><div class="key-box"><input class="input" value="' + esc(full) + '" readonly><button class="btn solid" onclick="copy(this.previousElementSibling.value, \'API key copied\')">' + uiIcon('copy', 15) + '</button></div></div></div>');
+    const me = await API.get('/api/me');
+    loadKeys(me.apiKeys);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function revoke(id) {
+  if (!confirm('Revoke this API key? Requests using it will stop working.')) return;
+  try {
+    await API.del('/api/me/api-keys/' + id);
+    toast('API key revoked');
+    const me = await API.get('/api/me');
+    loadKeys(me.apiKeys);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function saveProfile() {
+  const fullName = document.getElementById('inName').value.trim();
+  const email = document.getElementById('inEmail').value.trim();
+  const phone = document.getElementById('inPhone').value.trim();
+  try {
+    await API.patch('/api/me', { fullName, email, phone });
+    toast('Profile saved');
+    await refreshMe();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function changePass() {
+  const currentPassword = document.getElementById('inCur').value;
+  const newPassword = document.getElementById('inNew').value;
+  if (!currentPassword || !newPassword) { toast('Fill current & new password', 'err'); return; }
+  try {
+    await API.patch('/api/me', { currentPassword, newPassword });
+    toast('Password updated');
+    document.getElementById('inCur').value = document.getElementById('inNew').value = '';
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function deviceIcon(name) {
+  const n = String(name || '').toLowerCase();
+  if (n.includes('android') || n.includes('mobile') || n.includes('iphone')) return 'smartphone';
+  if (n.includes('mac') || n.includes('windows') || n.includes('linux')) return 'laptop';
+  return 'globe';
+}
+
+function loadSessions(sessions) {
+  const wrap = document.getElementById('sessWrap');
+  if (!sessions || !sessions.length) {
+    wrap.innerHTML = '<div class="center" style="color:var(--muted);padding:8px">No active sessions.</div>';
+    return;
+  }
+  const fmt = (iso) => {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+  wrap.innerHTML = sessions.map((s) => {
+    const current = s.current ? ' <span style="color:var(--accent);font-size:11px;font-weight:700">· This device</span>' : '';
+    const fp = s.device_fp ? s.device_fp.slice(0, 6).toUpperCase() + '…' + s.device_fp.slice(-4).toUpperCase() : '';
+    return '<div class="api-row">' +
+      '<div style="display:flex;align-items:center;gap:10px;min-width:0">' + uiIcon(deviceIcon(s.device_name), 18) +
+        '<div style="min-width:0"><div class="lbl">' + esc(s.device_name || 'Unknown device') + (s.is_active ? '' : ' <span style="color:var(--muted);font-weight:400">(signed out)</span>') + '</div>' +
+        '<div class="sub">' + esc(s.ip || '—') + ' · FP ' + esc(fp) + current + '</div>' +
+        '<div class="sub">Signed in ' + fmt(s.created_at) + ' · last seen ' + fmt(s.last_seen_at) + (s.revoked_at ? ' · signed out ' + fmt(s.revoked_at) : '') + '</div>' +
+      '</div></div>' +
+      (s.is_active && !s.current ? '<button class="btn" onclick="signOut(' + s.id + ')">Sign out</button>' : '') +
+    '</div>';
+  }).join('');
+}
+
+async function refreshSessions() {
+  const wrap = document.getElementById('sessWrap');
+  try {
+    const r = await API.get('/api/me/sessions');
+    loadSessions(r.sessions);
+    return r.sessions;
+  } catch (e) { wrap.innerHTML = '<div class="center" style="color:var(--danger)">' + esc(e.message) + '</div>'; return []; }
+}
+
+async function signOut(id) {
+  if (!confirm('Sign this device out?')) return;
+  try {
+    await API.del('/api/me/sessions/' + id);
+    toast('Device signed out');
+    refreshSessions();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function signOutOthers() {
+  if (!confirm('Sign out every other device? Current device stays signed in.')) return;
+  try {
+    await API.del('/api/me/sessions');
+    toast('Other devices signed out');
+    refreshSessions();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+const ACT_ICONS = { login: 'sign-in', register: 'user-plus', logout: 'sign-out', refresh: 'refresh', topup: 'wallet' };
+function loadActivity(activity) {
+  const wrap = document.getElementById('actWrap');
+  if (!activity || !activity.length) {
+    wrap.innerHTML = '<div class="center" style="color:var(--muted);padding:8px">No recent activity yet.</div>';
+    return;
+  }
+  wrap.innerHTML = activity.map((a) =>
+    '<div class="api-row">' +
+      '<div style="display:flex;align-items:center;gap:10px;min-width:0">' + uiIcon(ACT_ICONS[a.type] || 'shield', 16) +
+        '<div style="min-width:0"><div class="lbl">' + esc((a.detail || a.type || 'event')) + '</div>' +
+        '<div class="sub">' + esc(a.device_name || '—') + ' · ' + esc(a.ip || '—') + '</div></div>' +
+      '</div>' +
+      '<span class="sub" style="white-space:nowrap">' + timeAgo(a.created_at) + '</span>' +
+    '</div>').join('');
+}
+
+async function refreshActivity() {
+  const wrap = document.getElementById('actWrap');
+  try {
+    const r = await API.get('/api/me/activity');
+    loadActivity(r.activity);
+  } catch (e) { wrap.innerHTML = '<div class="center" style="color:var(--danger)">' + esc(e.message) + '</div>'; }
+}
+
+(async function init() {
+  mountUserSidebar('account');
+  const me = await refreshMe();
+  if (!me) { window.location.href = loginUrl(); return; }
+  setSideBalance(me.balance);
+  const m = await API.get('/api/me');
+  document.getElementById('inName').value = m.user.fullName;
+  document.getElementById('inEmail').value = m.user.email;
+  document.getElementById('inPhone').value = m.user.phone || '';
+  loadKeys(m.apiKeys);
+  refreshSessions();
+  refreshActivity();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Tickets</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .chat { display:flex; flex-direction:column; gap:10px; margin:12px 0 16px; }
+  .chat .msg { max-width:78%; padding:10px 14px; border-radius:12px; font-size:13.5px; line-height:1.5; }
+  .chat .msg.user { align-self:flex-start; background:var(--bg2); border:1px solid var(--border); }
+  .chat .msg.admin { align-self:flex-end; background:linear-gradient(135deg,rgba(37,99,235,.12),rgba(14,165,233,.12)); border:1px solid rgba(37,99,235,.25); }
+  .chat .msg .who { font-size:11.5px; font-weight:700; margin-bottom:3px; display:flex; gap:6px; align-items:center; }
+  .chat .msg .when { font-size:11px; color:var(--muted); margin-top:4px; }
+  .chat .msg.user .who { color:var(--accent); }
+  .chat .msg.admin .who { color:#b45309; }
+  .mini-form { display:flex; gap:8px; }
+  .mini-form .input { flex:1; }
+  .avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#2563eb,#06b6d4); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; flex-shrink:0; }
+  .cell-user { display:flex; align-items:center; gap:10px; }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>Support Tickets</h1><p class="sub">User tickets — reply, and manage status / priority.</p></div>
+    </div>
+    <div class="filter-row">
+      <div class="tabs" id="statusTabs">
+        <button class="active" data-s="">All</button>
+        <button data-s="open">Open</button>
+        <button data-s="answered">Answered</button>
+        <button data-s="closed">Closed</button>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn" onclick="load()">Refresh</button>
+    </div>
+    <div class="table-wrap" id="listWrap"><table><tr><td class="center">Loading...</td></tr></table></div>
+  </main>
+</div>
+
+<!-- detail modal -->
+<div class="modal-bg hidden" id="detailModal">
+  <div class="modal" style="max-width:680px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <h3 id="dSubject" style="margin:0"></h3>
+      <div style="display:flex;gap:6px;align-items:center">
+        <select class="input" id="dStatus" style="width:130px" onchange="applyPatch()"><option value="open">Open</option><option value="answered">Answered</option><option value="closed">Closed</option></select>
+        <select class="input" id="dPriority" style="width:110px" onchange="applyPatch()"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select>
+      </div>
+    </div>
+    <p class="sub" id="dMeta" style="margin:4px 0 10px"></p>
+    <div class="chat" id="chatBox"></div>
+    <div class="mini-form" id="replyArea">
+      <input class="input" id="replyMsg" placeholder="Support reply likhein...">
+      <button class="btn solid" onclick="doReply()">Send</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/admin/sidebar.js"></script>
+<script>
+mountSidebar('tickets');
+
+const ST = { open: 'amber', answered: 'green', closed: 'grey' };
+const STL = { open: 'Open', answered: 'Answered', closed: 'Closed' };
+let current = null;
+let filterStatus = '';
+
+async function load() {
+  try {
+    const { tickets } = await API.get('/api/admin/tickets');
+    const rows = filterStatus ? tickets.filter((t) => t.status === filterStatus) : tickets;
+    const wrap = document.getElementById('listWrap');
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="card center" style="padding:30px;color:var(--muted)">' + (tickets.length ? 'No tickets in this filter.' : 'No support tickets yet.') + '</div>';
+      return;
+    }
+    wrap.innerHTML =
+      '<table><thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Category</th><th>Priority</th><th>Msgs</th><th>Status</th><th>Updated</th></tr></thead><tbody>' +
+      rows.map((t) =>
+        '<tr style="cursor:pointer" onclick="openDetail(' + t.id + ')">' +
+        '<td>' + t.id + '</td>' +
+        '<td><b>' + esc(t.subject) + '</b></td>' +
+        '<td><div class="cell-user">' + initials(t.full_name || t.email) + '<div><b>' + esc(t.full_name || 'User') + '</b><div class="small" style="color:var(--muted)">' + esc(t.email || '') + '</div></div></div></td>' +
+        '<td>' + esc(t.category) + '</td>' +
+        '<td><span class="badge ' + (t.priority === 'high' ? 'red' : t.priority === 'normal' ? 'amber' : 'grey') + '">' + esc(t.priority) + '</span></td>' +
+        '<td class="center">' + (t.reply_count || 0) + '</td>' +
+        '<td><span class="badge ' + (ST[t.status] || 'grey') + '">' + (STL[t.status] || t.status) + '</span></td>' +
+        '<td class="small">' + timeAgo(t.updated_at || t.created_at) + '</td>' +
+        '</tr>').join('') +
+      '</tbody></table>';
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function initials(name) {
+  const parts = String(name || 'U').split(/[\s@]+/);
+  return '<span class="avatar">' + esc((parts[0] || 'U')[0].toUpperCase() + (parts[1] ? parts[1][0] : '').toUpperCase()) + '</span>';
+}
+
+async function openDetail(id) {
+  try {
+    const d = await API.get('/api/admin/tickets/' + id);
+    current = d.ticket;
+    document.getElementById('dSubject').textContent = esc(d.ticket.subject);
+    document.getElementById('dStatus').value = d.ticket.status;
+    document.getElementById('dPriority').value = d.ticket.priority || 'normal';
+    document.getElementById('dMeta').textContent =
+      'user: ' + esc(d.ticket.full_name || d.ticket.email || '—') + ' (' + esc(d.ticket.email || '') + ') · ' + esc(d.ticket.category) +
+      ' · created ' + timeAgo(d.ticket.created_at) + (d.ticket.closed_at ? ' · closed ' + timeAgo(d.ticket.closed_at) : '');
+    document.getElementById('chatBox').innerHTML = d.messages.map((m) => {
+      const who = m.senderRole === 'admin' ? 'Support (You)' : esc(m.senderName || 'User');
+      return '<div class="msg ' + m.senderRole + '"><div class="who">' + who + '</div>' +
+        '<div style="white-space:pre-wrap">' + esc(m.message) + '</div>' +
+        '<div class="when">' + timeAgo(m.createdAt) + '</div></div>';
+    }).join('') || '<div class="center small">(no messages)</div>';
+    document.getElementById('replyArea').style.display = d.ticket.status === 'closed' ? 'none' : 'flex';
+    document.getElementById('detailModal').classList.remove('hidden');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function applyPatch() {
+  if (!current) return;
+  try {
+    await API.patch('/api/admin/tickets/' + current.id, {
+      status: document.getElementById('dStatus').value,
+      priority: document.getElementById('dPriority').value,
+    });
+    toast('Ticket updated');
+    load();
+    if (current) openDetail(current.id);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function doReply() {
+  const message = document.getElementById('replyMsg').value.trim();
+  if (!message || !current) return;
+  try {
+    await API.post('/api/admin/tickets/' + current.id + '/messages', { message });
+    document.getElementById('replyMsg').value = '';
+    toast('Reply sent — ticket status: Answered');
+    load();
+    openDetail(current.id);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+document.getElementById('statusTabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  document.querySelectorAll('#statusTabs button').forEach((x) => x.classList.remove('active'));
+  b.classList.add('active');
+  filterStatus = b.getAttribute('data-s');
+  load();
+});
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'detailModal') document.getElementById('detailModal').classList.add('hidden');
+});
+
+(async function init() {
+  const user = await refreshMe();
+  if (!user || user.role !== 'admin') { window.location.href = '/admin-login'; return; }
+  load();
+  setInterval(load, 10000);
+})();
+</script>
+</body>
+</html>

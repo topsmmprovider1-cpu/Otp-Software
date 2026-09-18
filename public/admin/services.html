@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Services · Admin</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+
+  <main class="admin-main">
+    <div class="page-head">
+      <div>
+        <h1>Services</h1>
+        <p class="sub">Platform × Country offerings — inventory, pricing & delivery time at a glance.</p>
+      </div>
+      <button class="btn solid" onclick="openAddModal()">＋ New Service</button>
+    </div>
+
+    <div class="stats-grid" style="margin-bottom:22px">
+      <div class="stat-card"><div class="num" id="statTotal">0</div><div class="lbl">Total services</div></div>
+      <div class="stat-card"><div class="num" id="statLive">0</div><div class="lbl">Live / enabled</div></div>
+      <div class="stat-card"><div class="num" id="statInv">0</div><div class="lbl">Numbers in stock</div></div>
+      <div class="stat-card"><div class="num" id="statAvail">0</div><div class="lbl">Available now</div></div>
+      <div class="stat-card"><div class="num" id="statAvg">—</div><div class="lbl">Avg OTP time</div></div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="svcTable">
+        <thead>
+          <tr>
+            <th>Service</th>
+            <th>Country</th>
+            <th>Price</th>
+            <th>Inventory</th>
+            <th>Auto-pull</th>
+            <th>Avg time</th>
+            <th>Status</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<!-- ================= ADD / EDIT MODAL ================= -->
+<div class="modal-bg hidden" id="modalBg">
+  <div class="modal" style="max-width:520px">
+    <h3 id="modalTitle">New Service</h3>
+    <p class="sub" id="modalSub">Create a platform + country service with price & inventory.</p>
+    <input type="hidden" id="fId">
+    <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field">
+        <label>Platform</label>
+        <input class="input" id="fPlatform" list="dPlat" placeholder="e.g. Instagram" maxlength="60">
+        <datalist id="dPlat"></datalist>
+      </div>
+      <div class="field">
+        <label>Country</label>
+        <input class="input" id="fCountry" list="dCnt" placeholder="e.g. USA" maxlength="60">
+        <datalist id="dCnt"></datalist>
+      </div>
+    </div>
+    <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field">
+        <label>Price <small>(USD)</small></label>
+        <input class="input" id="fPrice" type="number" step="0.01" min="0" placeholder="2.50">
+      </div>
+      <div class="field">
+        <label>API URL <small>(sms8 record)</small></label>
+        <input class="input" id="fApiUrl" placeholder="https://api.sms8.net/api/record?token=..." style="font-family:Consolas,monospace">
+      </div>
+    </div>
+    <div class="field">
+      <label>Numbers <small>(optional — one per line)</small></label>
+      <textarea class="input" id="fNumbers" placeholder="+12086948340&#10;+12089778478----https://api.sms8.net/api/record?token=..."></textarea>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn solid" id="saveBtn" onclick="saveService()">Create service</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/admin/sidebar.js"></script>
+<script>
+let services = [];
+let editingId = null;
+
+mountSidebar('services');
+
+function fmtTime(sec) {
+  if (sec == null) return '—';
+  if (sec < 60) return Math.round(sec) + 's';
+  const m = Math.floor(sec / 60);
+  if (m < 60) return m + 'm ' + Math.round(sec % 60) + 's';
+  return (m / 60).toFixed(1) + 'h';
+}
+function apiBadge(s) {
+  const total = s.number_count || 0;
+  const ok = s.api_count || 0;
+  if (!total) return '<span class="api-dot off" title="No numbers — add inventory for auto-pulling"></span><span class="small">No inventory</span>';
+  if (ok === total) return '<span class="api-dot ok" title="All numbers have an sms8 API URL — auto-pull active"></span><span class="small">' + ok + '/' + total + '</span>';
+  if (ok > 0) return '<span class="api-dot part" title="Some numbers are missing an API URL"></span><span class="small">' + ok + '/' + total + '</span>';
+  return '<span class="api-dot off" title="No API URL — OTP pulling will not work"></span><span class="small">Missing</span>';
+}
+const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>';
+const ICON_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+
+async function load() {
+  const d = await API.get('/api/admin/services');
+  services = d.services || [];
+  render();
+  const plat = new Set(), cnt = new Set();
+  services.forEach((s) => { plat.add(s.platform); cnt.add(s.country); });
+  document.getElementById('dPlat').innerHTML = [...plat].map((p) => '<option value="' + esc(p) + '">').join('');
+  document.getElementById('dCnt').innerHTML = [...cnt].map((c) => '<option value="' + esc(c) + '">').join('');
+
+  const live = services.filter((s) => s.status === 'enabled');
+  const inv = services.reduce((a, s) => a + s.number_count, 0);
+  const avail = services.reduce((a, s) => a + s.available_count, 0);
+  const times = services.map((s) => s.avg_time_sec).filter((t) => t != null);
+  document.getElementById('statTotal').textContent = services.length;
+  document.getElementById('statLive').textContent = live.length;
+  document.getElementById('statInv').textContent = inv;
+  document.getElementById('statAvail').textContent = avail;
+  document.getElementById('statAvg').textContent = times.length ? fmtTime(times.reduce((a, b) => a + b, 0) / times.length) : '—';
+}
+
+function render() {
+  const tb = document.querySelector('#svcTable tbody');
+  if (!services.length) {
+    tb.innerHTML = '<tr><td colspan="7" class="center small" style="padding:34px">No services yet. Click "＋ New Service" to create your first one.</td></tr>';
+    return;
+  }
+  tb.innerHTML = services.map((s) => {
+    const pct = s.number_count ? Math.round((s.available_count / Math.max(s.number_count, 1)) * 100) : 0;
+    const badgeCls = s.number_count === 0 ? 'grey' : pct === 0 ? 'red' : pct < 40 ? 'amber' : 'green';
+    const invLabel = s.number_count === 0 ? '0 / 0' : s.available_count + ' / ' + s.number_count;
+    return '<tr' + (s.status !== 'enabled' ? ' class="svc-disabled"' : '') + '>' +
+      '<td><div class="svc-name">' +
+        '<span class="svc-icon">' + platformLogo(s.platform) + '</span>' +
+        '<div><b>' + esc(s.platform) + '</b><br><span class="small">' + esc(s.created_at.slice(0, 10)) + '</span></div>' +
+      '</div></td>' +
+      '<td><span class="cty">' + countryCell(s.country) + '</span></td>' +
+      '<td><b class="price">' + fmtNum(s.min_price || s.price || 0, '$') + '</b>' +
+        (Math.abs((s.min_price || 0) - (s.price || 0)) > 0.001 ? '<div class="small">set: ' + fmtNum(s.price, '$') + '</div>' : '') + '</td>' +
+      '<td><span class="badge ' + badgeCls + '">' + invLabel + '</span>' +
+        '<div class="bar"><i style="width:' + pct + '%"></i></div></td>' +
+      '<td>' + apiBadge(s) + '</td>' +
+      '<td><b>' + fmtTime(s.avg_time_sec) + '</b></td>' +
+      '<td>' +
+        '<label class="switch"><input type="checkbox" ' + (s.status === 'enabled' ? 'checked' : '') + ' onchange="toggleService(' + s.id + ', this.checked)">' +
+        '<span class="slider"></span></label>' +
+        '<span class="small" style="margin-left:6px">' + (s.status === 'enabled' ? 'Live' : 'Off') + '</span>' +
+      '</td>' +
+      '<td style="text-align:right"><div class="actions" style="justify-content:flex-end;gap:6px">' +
+        '<button class="icon-btn" title="Edit" onclick="openEditModal(' + s.id + ')">' + ICON_EDIT + '</button>' +
+        '<button class="icon-btn" title="Add numbers" onclick="addNumbers(' + s.id + ')">' + ICON_PLUS + '</button>' +
+        '<button class="icon-btn danger" title="Delete" onclick="deleteService(' + s.id + ')">' + ICON_TRASH + '</button>' +
+      '</div></td></tr>';
+  }).join('');
+}
+
+// ---------- modals ----------
+function openModal() { document.getElementById('modalBg').classList.remove('hidden'); }
+function closeModal() { document.getElementById('modalBg').classList.add('hidden'); editingId = null; }
+document.getElementById('modalBg').addEventListener('click', (e) => { if (e.target.id === 'modalBg') closeModal(); });
+
+window.openAddModal = function () {
+  editingId = null;
+  document.getElementById('modalTitle').textContent = 'New Service';
+  document.getElementById('modalSub').textContent = 'Platform + country + price. Numbers (optional) will be added as inventory for this service.';
+  ['fId', 'fPlatform', 'fCountry', 'fPrice', 'fApiUrl', 'fNumbers'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('fNumbers').disabled = false;
+  document.getElementById('saveBtn').textContent = 'Create service';
+  openModal();
+};
+
+window.openEditModal = function (id) {
+  const s = services.find((x) => x.id === id);
+  if (!s) return;
+  editingId = id;
+  document.getElementById('modalTitle').textContent = 'Edit Service';
+  document.getElementById('modalSub').textContent = 'Edit price and API URL — platform / country cannot be changed.';
+  document.getElementById('fId').value = s.id;
+  document.getElementById('fPlatform').value = s.platform;
+  document.getElementById('fCountry').value = s.country;
+  document.getElementById('fPrice').value = s.price;
+  document.getElementById('fApiUrl').value = s.api_url || '';
+  document.getElementById('fNumbers').value = '';
+  document.getElementById('fNumbers').disabled = true;
+  document.getElementById('saveBtn').textContent = 'Save changes';
+  openModal();
+};
+
+window.addNumbers = function (id) {
+  const s = services.find((x) => x.id === id);
+  if (!s) return;
+  openEditModal(id);
+  document.getElementById('modalTitle').textContent = 'Add to ' + s.platform + ' / ' + s.country;
+  document.getElementById('modalSub').textContent = 'Price/API URL are prefilled — just paste the numbers line by line and click the save button.';
+  document.getElementById('fNumbers').disabled = false;
+  document.getElementById('fNumbers').placeholder = '+12086948340\n+12089778478----https://api.sms8.net/api/record?token=...';
+  document.getElementById('saveBtn').textContent = 'Add numbers';
+};
+
+// "+12089778478----https://..."  ->  { number, api_url }; plain lines -> { number }
+function parseNumberLines(lines) {
+  return lines.map((line) => {
+    const i = line.indexOf('----');
+    if (i === -1) return { number: line };
+    return { number: line.slice(0, i).trim(), api_url: line.slice(i + 4).trim() };
+  });
+}
+
+window.saveService = async function () {
+  const platform = document.getElementById('fPlatform').value.trim();
+  const country = document.getElementById('fCountry').value.trim();
+  const price = parseFloat(document.getElementById('fPrice').value) || 0;
+  const apiUrl = document.getElementById('fApiUrl').value.trim();
+  const numbers = document.getElementById('fNumbers').value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  if (!platform) return toast('Platform required', 'err');
+  if (!country) return toast('Country required', 'err');
+  try {
+    if (editingId !== null) {
+      const numPayload = numbers.length ? parseNumberLines(numbers).map((n) => ({ number: n.number, country, platform, price, api_url: n.api_url || apiUrl })) : [];
+      for (const batch of [numPayload]) {
+        if (batch.length) await API.post('/api/admin/numbers', { rows: batch });
+      }
+      await API.patch('/api/admin/services/' + editingId, { price, apiUrl });
+      toast('Service updated');
+    } else {
+      const body = { platform, country, price, apiUrl };
+      if (numbers.length) body.lines = numbers.join('\n');
+      await API.post('/api/admin/services', body);
+      toast('Service created');
+    }
+    closeModal();
+    load();
+  } catch (err) { toast(err.message, 'err'); }
+};
+
+window.toggleService = async function (id, checked) {
+  const status = checked ? 'enabled' : 'disabled';
+  try { await API.patch('/api/admin/services/' + id, { status }); toast('Service ' + status); load(); }
+  catch (err) { toast(err.message, 'err'); }
+};
+
+window.deleteService = async function (id) {
+  const s = services.find((x) => x.id === id);
+  if (!confirm('Delete service ' + s.platform + ' / ' + s.country + '?')) return;
+  try { await API.req('DELETE', '/api/admin/services/' + id); toast('Service deleted'); load(); }
+  catch (err) { toast(err.message, 'err'); }
+};
+
+(async function init() {
+  const user = await refreshMe();
+  if (!user || user.role !== 'admin') { window.location.href = '/admin-login'; return; }
+  await load().catch((e) => toast(e.message, 'err'));
+})();
+</script>
+</body>
+</html>

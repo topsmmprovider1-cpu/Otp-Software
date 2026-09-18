@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Docs · OTP Shop</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .endpoint { border:1px solid var(--border); border-radius:12px; margin-bottom:14px; overflow:hidden; background:var(--panel); }
+  .endpoint-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); background:var(--panel2); flex-wrap:wrap; }
+  .verb { font-size:11px; font-weight:800; letter-spacing:.5px; color:#fff; border-radius:6px; padding:3px 9px; }
+  .verb.get { background:#2563eb; } .verb.post { background:#16a34a; }
+  .ep-path { font-family:Consolas,monospace; font-weight:700; font-size:13.5px; color:var(--text); }
+  .ep-desc { width:100%; font-size:12.5px; color:var(--muted); margin-top:2px; }
+  .endpoint-body { padding:14px 16px; }
+  .endpoint-body p { margin:0 0 8px; font-size:13.5px; color:var(--muted-strong, #334155); }
+  pre { background:#0f172a; color:#e2e8f0; border-radius:10px; padding:14px 14px 10px; overflow-x:auto; font-size:12.5px; line-height:1.55; position:relative; margin:10px 0 0; }
+  pre code { font-family:Consolas,monospace; white-space:pre; }
+  pre .copybtn { position:absolute; top:8px; right:8px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); color:#e2e8f0; border-radius:6px; padding:3px 8px; font-size:11px; cursor:pointer; }
+  pre .copybtn:hover { background:rgba(255,255,255,.18); }
+  .resp-label { font-size:10.5px; font-weight:800; letter-spacing:1px; text-transform:uppercase; color:var(--muted2); margin:12px 0 0; display:flex; gap:8px; align-items:center; }
+  .resp-label::before { content:''; width:6px; height:6px; border-radius:50%; background:#52BF35; display:inline-block; }
+  pre.resp { background:#f3f6fb; color:#0f172a; border:1px solid var(--border); }
+  .use-key { display:flex; gap:8px; align-items:center; margin-bottom:14px; }
+  .use-key .input { flex:1; font-family:Consolas,monospace; }
+  table.doc { width:100%; border-collapse:collapse; font-size:13px; }
+  table.doc th, table.doc td { border:1px solid var(--border); padding:7px 10px; text-align:left; }
+  table.doc th { background:var(--panel2); }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>OTP API — Developer Docs</h1><p class="sub">Programmatically buy numbers and receive OTPs. Every user has a personal API key.</p></div>
+      <button class="btn" onclick="window.location.href='/app/account'">Manage API key</button>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3>Authentication</h3>
+      <button class="copybtn" onclick="copy('Authorization: Bearer your_api_key', 'Copied')" style="float:right">Copy</button>
+      <p class="sub" style="margin-top:2px">Send your key on every request via the header <code>Authorization: Bearer &lt;API_KEY&gt;</code> or query param <code>?api_key=&lt;API_KEY&gt;</code>.</p>
+      <p class="sub" style="margin-top:2px">Base URL: <code id="baseUrl">(auto-detect)</code><span style="color:var(--muted2)"> · Versioned under <code>/api/v1</code></span></p>
+      <div class="use-key">
+        <input class="input" id="kInput" placeholder="Your API key will appear here" readonly>
+        <button class="btn solid" onclick="copyEl('kInput')">Copy key</button>
+      </div>
+      <p class="warn" id="noKey" style="display:none">No key yet? Generate one on the <a href="/app/account">Account page</a>.</p>
+      <div class="tips">
+        <div class="tip">1. Buy a number</div>
+        <div class="tip">2. Use it on your target service</div>
+        <div class="tip">3. OTP is pulled automatically</div>
+        <div class="tip">4. GET /otp → receive the code</div>
+      </div>
+    </div>
+
+    <div id="docs"></div>
+
+    <div class="card" style="margin-top:4px">
+      <h3>Response format</h3>
+      <p class="sub" style="margin-top:2px">Success: <code>{ "success": true, ... }</code> &nbsp;·&nbsp; Error / still pending: <code>{ "success": false, "error" / "message": "...", "status": "pending|expired|..." }</code>. While OTP is not yet available, <code>/otp</code> keeps returning <code>success:false</code> with <code>status:"pending"</code> — keep polling until <code>status:"completed"</code>.</p>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>Rate limits</h3>
+      <p class="sub" style="margin-top:2px">Limits are enforced per API key (+ IP) over a sliding 60-second window. Exceeding them returns <code>429</code> <code>{ "success": false, "error": "..." }</code> with a <code>Retry-After</code> header.</p>
+      <table class="doc" style="margin-top:10px">
+        <thead><tr><th>Group</th><th>Limit</th><th>Applies to</th></tr></thead>
+        <tbody>
+          <tr><td>Global API</td><td>240 req / min</td><td>Every <code>/api/v1</code> call</td></tr>
+          <tr><td>Purchase</td><td>30 req / min</td><td><code>POST /getNumber</code>, <code>POST /getNumber/sync</code></td></tr>
+          <tr><td>OTP poll</td><td>120 req / min</td><td><code>GET /otp/:orderId</code></td></tr>
+          <tr><td>Cancel</td><td>30 req / min</td><td><code>POST /cancelOrder/:orderId</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/app/user-sidebar.js"></script>
+<script>
+mountUserSidebar('api-docs');
+
+function copyEl(id) { copy(document.getElementById(id).value, 'Copied'); }
+function copy(txt, msg) {
+  navigator.clipboard.writeText(txt).then(() => toast(msg)).catch(() => toast('Copy failed', 'err'));
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.copybtn');
+  if (b && b.closest('pre')) copy(b.closest('pre').dataset.txt || b.closest('pre').innerText.replace(/Copy/g, '').trim(), 'Copied');
+});
+
+const BASE = (location.origin || '') + '/api/v1';
+const K = 'YOUR_API_KEY';
+
+const RESP = {
+  me: `{ "success": true, "user": { "id": 1, "fullName": "Demo User", "email": "demo@otp.com" }, "balance": 42.5, "currency": "USD" }`,
+  balance: `{ "success": true, "balance": 42.5, "currency": "USD" }`,
+  services: `{ "success": true, "count": 2, "services": [ { "platform": "Telegram", "country": "India", "price": 1.2, "count": 3, "avgTimeSec": 12 } ] }`,
+  inventory: `{ "success": true, "platforms": [ { "name": "Telegram", "services": [ { "country": "India", "count": 3, "price": 1.2 } ] } ], "countries": [ { "name": "India", "count": 3 } ] }`,
+  getNumber: `{ "success": true, "orderId": "ORD-17900000000001234", "number": "+919999999999", "platform": "Telegram", "country": "India", "price": 1.2, "balance": 41.3, "status": "pending", "expiresInSec": 600, "createdAt": "2026-09-13T10:00:00.000Z", "tip": "Call GET /api/v1/otp/ORD-... to receive the OTP" }`,
+  syncDone: `{ "success": true, "orderId": "ORD-17900000000001234", "number": "+919999999999", "platform": "Telegram", "country": "India", "price": 1.2, "status": "completed", "otp": "482913", "otpMessage": "Your OTP is 482913", "otpTime": "2026-09-13T10:00:05.000Z", "balance": 41.3 }`,
+  syncWait: `{ "success": false, "orderId": "ORD-17900000000001234", "number": "+919999999999", "status": "pending", "balance": 41.3, "message": "OTP not received yet. Poll GET /api/v1/otp/ORD-..." }`,
+  otpDone: `{ "success": true, "status": "completed", "orderId": "ORD-17900000000001234", "number": "+919999999999", "otp": "482913", "otpMessage": "Your OTP is 482913", "otpTime": "2026-09-13T10:00:05.000Z", "price": 1.2 }`,
+  otpWait: `{ "success": false, "status": "pending", "orderId": "ORD-17900000000001234", "number": "+919999999999", "otp": "", "message": "No OTP yet. Keep polling this endpoint." }`,
+  order: `{ "success": true, "order": { "orderId": "ORD-17900000000001234", "number": "+919999999999", "platform": "Telegram", "country": "India", "price": 1.2, "status": "completed", "otp": "482913", "pullCount": 2, "createdAt": "2026-09-13T10:00:00.000Z", "completedAt": "2026-09-13T10:00:05.000Z" } }`,
+  orders: `{ "success": true, "count": 1, "orders": [ { "orderId": "ORD-17900000000001234", "number": "+919999999999", "platform": "Telegram", "country": "India", "price": 1.2, "status": "completed", "otp": "482913", "createdAt": "2026-09-13T10:00:00.000Z" } ] }`,
+  cancel: `{ "success": true, "orderId": "ORD-17900000000001234", "status": "cancelled", "refunded": 1.2, "balance": 42.5 }`,
+};
+
+const DOCS = [
+  { v: 'GET', path: '/me', desc: 'Your account profile and current wallet balance.', sample: `curl -H "Authorization: Bearer ${K}" \\\n  ${BASE}/me`, resp: RESP.me, respLabel: 'Response' },
+  { v: 'GET', path: '/balance', desc: 'Current wallet balance.', sample: `curl -H "Authorization: Bearer ${K}" \\\n  ${BASE}/balance`, resp: RESP.balance, respLabel: 'Response' },
+  { v: 'GET', path: '/services', desc: 'Enabled services — platform, country, price, available count and average OTP wait.', sample: `curl -H "Authorization: Bearer ${K}" \\\n  ${BASE}/services`, resp: RESP.services, respLabel: 'Response' },
+  { v: 'GET', path: '/inventory', desc: 'Inventory grouped per platform and per country.', sample: `curl -H "Authorization: Bearer ${K}" \\\n  ${BASE}/inventory`, resp: RESP.inventory, respLabel: 'Response' },
+  { v: 'POST', path: '/getNumber', desc: 'Body: <code>{"platform":"Telegram","country":"India"}</code>. Deducts the price, marks the number sold and starts OTP pulling immediately. Returns the <code>orderId</code> you will poll with.', sample: `curl -X POST -H "Authorization: Bearer ${K}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"platform":"Telegram","country":"India"}' \\\n  ${BASE}/getNumber`, resp: RESP.getNumber, respLabel: 'Response' },
+  { v: 'POST', path: '/getNumber/sync', desc: 'Buy + wait for the OTP in one call. <code>wait</code> (seconds, default 30, max 60) can be passed in the body or as <code>?wait=45</code>. Holds until the OTP arrives or the wait ends.', sample: `curl -X POST -H "Authorization: Bearer ${K}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"platform":"Telegram","country":"India","wait":45}' \\\n  ${BASE}/getNumber/sync`, resp: RESP.syncDone, respLabel: 'When OTP arrived' },
+  { v: 'POST', path: '/getNumber/sync', desc: '…but if the wait ends before the OTP, you get <code>success:false</code> — just poll <code>/otp/:orderId</code>.', sample: `curl -X POST -H "Authorization: Bearer ${K}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"platform":"Telegram","country":"India","wait":30}' \\\n  ${BASE}/getNumber/sync`, resp: RESP.syncWait, respLabel: 'When OTP not yet received' },
+  { v: 'GET', path: '/otp/:orderId', desc: 'Long-poll (max <code>wait</code> seconds via ?wait=) until the OTP arrives. While pending it returns <code>success:false</code> — keep polling. Expired orders return <code>status:"expired"</code>.', sample: `curl -H "Authorization: Bearer ${K}" \\\n  "${BASE}/otp/ORD-17900000000001234?wait=40"`, resp: RESP.otpDone, respLabel: 'When OTP arrived' },
+  { v: 'GET', path: '/otp/:orderId', desc: '…during the wait window:', sample: `curl -H "Authorization: Bearer ${K}" \\\n  "${BASE}/otp/ORD-17900000000001234?wait=40"`, resp: RESP.otpWait, respLabel: 'Still pending' },
+  { v: 'GET', path: '/order/:orderId', desc: 'Full status of a single order (number, price, status, otp, pull count, timestamps).', sample: `curl -H "Authorization: Bearer ${K}" \\\n  ${BASE}/order/ORD-17900000000001234`, resp: RESP.order, respLabel: 'Response' },
+  { v: 'GET', path: '/orders', desc: 'All your orders, newest first. No filters — filter <code>status</code> yourself from the response.', sample: `curl -H "Authorization: Bearer ${K}" \\\n  ${BASE}/orders`, resp: RESP.orders, respLabel: 'Response' },
+  { v: 'POST', path: '/cancelOrder/:orderId', desc: 'Cancel a <code>pending</code> order — full refund to the wallet and the number goes back to inventory. Orders that already received an OTP cannot be cancelled.', sample: `curl -X POST -H "Authorization: Bearer ${K}" \\\n  ${BASE}/cancelOrder/ORD-17900000000001234`, resp: RESP.cancel, respLabel: 'Response' },
+];
+
+(function renderDocs() {
+  document.getElementById('baseUrl').textContent = BASE;
+  const host = document.getElementById('docs');
+  host.innerHTML = DOCS.map((d, i) => `
+    <div class="endpoint">
+      <div class="endpoint-head">
+        <span class="verb ${d.v.toLowerCase()}">${d.v}</span>
+        <span class="ep-path">/api/v1${d.path}</span>
+        <span class="ep-desc">${d.desc}</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="resp-label">Request</div>
+        <pre data-cb></pre>
+        <div class="resp-label">${d.respLabel}</div>
+        <pre class="resp" data-cb></pre>
+      </div>
+    </div>`).join('');
+  document.querySelectorAll('pre[data-cb]').forEach((pre) => {
+    const isResp = pre.classList.contains('resp');
+    const txt = isResp ? DOCS[Math.floor([...document.querySelectorAll('pre[data-cb]')].indexOf(pre) / 2)].resp : DOCS[Math.floor([...document.querySelectorAll('pre[data-cb]')].indexOf(pre) / 2)].sample;
+    pre.dataset.txt = txt;
+    pre.innerHTML = '<span class="copybtn">Copy</span><code></code>';
+    pre.querySelector('code').textContent = txt;
+  });
+})();
+
+(async function init() {
+  const me = await refreshMe();
+  if (!me) { window.location.href = loginUrl(); return; }
+  setSideBalance(me.balance);
+  try {
+    const m = await API.get('/api/me');
+    const k = m.apiKeys && m.apiKeys[0];
+    if (k) document.getElementById('kInput').value = k.apiKey;
+    else document.getElementById('noKey').style.display = 'block';
+  } catch (e) { }
+})();
+</script>
+</body>
+</html>

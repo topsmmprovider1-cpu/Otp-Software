@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Support / Tickets · My Account</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .ticket-row { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  .chat { display:flex; flex-direction:column; gap:10px; margin:12px 0 16px; }
+  .chat .msg { max-width:78%; padding:10px 14px; border-radius:12px; font-size:13.5px; line-height:1.5; }
+  .chat .msg.user { align-self:flex-end; background:linear-gradient(135deg,rgba(37,99,235,.12),rgba(14,165,233,.12)); border:1px solid rgba(37,99,235,.25); }
+  .chat .msg.admin { align-self:flex-start; background:var(--bg2); border:1px solid var(--border); }
+  .chat .msg .who { font-size:11.5px; font-weight:700; margin-bottom:3px; display:flex; gap:6px; align-items:center; }
+  .chat .msg .when { font-size:11px; color:var(--muted); margin-top:4px; }
+  .chat .msg.admin .who { color:#b45309; }
+  .chat .msg.user .who { color:var(--accent); }
+  .mini-form { display:flex; gap:8px; }
+  .mini-form .input { flex:1; }
+</style>
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>Support / Tickets</h1><p class="sub">Issue ho to ticket banao — admin reply karta hai, conversation yahin chat me milegi.</p></div>
+      <button class="btn solid" onclick="openCreate()">+ New ticket</button>
+    </div>
+
+    <div id="listWrap"><div class="center" style="padding:60px 0;color:var(--muted)">Loading...</div></div>
+  </main>
+</div>
+
+<!-- create ticket modal -->
+<div class="modal-bg hidden" id="createModal">
+  <div class="modal">
+    <h3>New ticket</h3>
+    <div class="form-row" style="margin:10px 0"><label>Subject</label><input class="input field" id="tSubject" placeholder="e.g. OTP nahi mila, number expired, refund..."></div>
+    <div class="row" style="display:flex;gap:10px;margin-bottom:10px">
+      <select class="input" id="tCat" style="flex:1">
+        <option value="general">General / other</option>
+        <option value="otp">OTP not received</option>
+        <option value="billing">Billing / refund</option>
+        <option value="api">API issue</option>
+      </select>
+      <select class="input" id="tPri" style="flex:1">
+        <option value="low">Low</option>
+        <option value="normal" selected>Normal</option>
+        <option value="high">High</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Message</label><textarea class="input field" id="tMsg" rows="4" placeholder="Apni problem detail me batayein..."></textarea></div>
+    <div class="actions">
+      <button class="btn" onclick="document.getElementById('createModal').classList.add('hidden')">Cancel</button>
+      <button class="btn solid" id="btnCreateGo" onclick="doCreate()">Create ticket</button>
+    </div>
+  </div>
+</div>
+
+<!-- detail modal -->
+<div class="modal-bg hidden" id="detailModal">
+  <div class="modal" style="max-width:640px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <h3 id="dSubject" style="margin:0"></h3>
+      <span id="dBadge"></span>
+    </div>
+    <p class="sub" id="dMeta" style="margin:4px 0 10px"></p>
+    <div class="chat" id="chatBox"></div>
+    <div class="mini-form" id="replyArea">
+      <input class="input" id="replyMsg" placeholder="Reply karein... (ticket reply par open ho jata hai)">
+      <button class="btn solid" onclick="doReply()">Send</button>
+      <button class="btn ghost" onclick="doClose()">Close ticket</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/app/user-sidebar.js"></script>
+<script>
+mountUserSidebar('tickets');
+
+let tickets = [];
+let current = null;
+const ST = { open: 'amber', answered: 'green', closed: 'grey' };
+const STL = { open: 'Open', answered: 'Answered', closed: 'Closed' };
+
+function openCreate() { document.getElementById('createModal').classList.remove('hidden'); }
+
+async function doCreate() {
+  const subject = document.getElementById('tSubject').value.trim();
+  const category = document.getElementById('tCat').value;
+  const priority = document.getElementById('tPri').value;
+  const message = document.getElementById('tMsg').value.trim();
+  if (!subject || !message) { toast('Subject aur message dono chahiye', 'err'); return; }
+  const btn = document.getElementById('btnCreateGo'); btn.disabled = true;
+  try {
+    await API.post('/api/tickets', { subject, category, priority, message });
+    toast('Ticket created — admin jald reply karega');
+    document.getElementById('createModal').classList.add('hidden');
+    load();
+  } catch (e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; }
+}
+
+async function openDetail(id) {
+  try {
+    const d = await API.get('/api/tickets/' + id);
+    current = d.ticket; current.messages = d.messages;
+    document.getElementById('dSubject').textContent = esc(d.ticket.subject);
+    document.getElementById('dBadge').innerHTML = '<span class="badge ' + (ST[d.ticket.status] || 'grey') + '">' + (STL[d.ticket.status] || d.ticket.status) + '</span>';
+    document.getElementById('dMeta').textContent =
+      esc(d.ticket.category) + ' · priority ' + esc(d.ticket.priority) + ' · created ' + timeAgo(d.ticket.createdAt);
+    document.getElementById('chatBox').innerHTML = d.messages.map((m) =>
+      '<div class="msg ' + m.senderRole + '"><div class="who">' + esc(m.senderName) + '</div>' +
+      '<div style="white-space:pre-wrap">' + esc(m.message) + '</div>' +
+      '<div class="when">' + timeAgo(m.createdAt) + '</div></div>').join('') || '<div class="center small">(no messages)</div>';
+    const closed = d.ticket.status === 'closed';
+    document.getElementById('replyArea').style.display = closed ? 'none' : 'flex';
+    document.getElementById('detailModal').classList.remove('hidden');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function doReply() {
+  const msg = document.getElementById('replyMsg').value.trim();
+  if (!msg || !current) return;
+  try {
+    await API.post('/api/tickets/' + current.id + '/messages', { message: msg });
+    document.getElementById('replyMsg').value = '';
+    toast('Reply sent');
+    openDetail(current.id);
+    load();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function doClose() {
+  if (!confirm('Close this ticket?')) return;
+  try {
+    await API.post('/api/tickets/' + current.id + '/close');
+    toast('Ticket closed');
+    openDetail(current.id);
+    load();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function load() {
+  try {
+    const { tickets: list } = await API.get('/api/tickets');
+    tickets = list;
+    const wrap = document.getElementById('listWrap');
+    if (!list.length) {
+      wrap.innerHTML = '<div class="center" style="padding:60px 0;color:var(--muted)">No tickets yet.<br><button class="btn solid mt" style="margin-top:14px" onclick="openCreate()">Create your first ticket</button></div>';
+      return;
+    }
+    wrap.innerHTML = list.map((t) =>
+      '<div class="order" style="cursor:pointer" onclick="openDetail(' + t.id + ')">' +
+        '<div class="order-head"><div class="flex"><div><b>' + esc(t.subject) + '</b>' +
+        '<div class="small" style="color:var(--muted)">#' + t.id + ' · ' + esc(t.category) + ' · ' + esc(t.priority) + '</div></div>' +
+        '<span class="badge ' + (ST[t.status] || 'grey') + '">' + (STL[t.status] || t.status) + '</span></div></div>' +
+        '<div class="order-foot" style="border-top:none;padding-top:0"><span class="small">Updated ' + timeAgo(t.updatedAt || t.createdAt) + '</span></div>' +
+      '</div>').join('');
+  } catch (e) { }
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#detailModal') === null && !e.target.closest('#detailModal')) return;
+  if (e.target.id === 'detailModal') document.getElementById('detailModal').classList.add('hidden');
+});
+
+(async function init() {
+  mountUserSidebar('tickets');
+  const me = await refreshMe();
+  if (!me) { window.location.href = loginUrl(); return; }
+  setSideBalance(me.balance);
+  load();
+  setInterval(load, 15000);
+})();
+</script>
+</body>
+</html>

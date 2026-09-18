@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Orders</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body class="admin-body">
+<div class="admin-layout">
+  <aside class="admin-side" id="side"></aside>
+
+  <main class="admin-main">
+    <div class="page-head">
+      <div><h1>Orders &amp; OTP Logs</h1><p class="sub">All transactions, OTP delivery and history.</p></div>
+    </div>
+    <div class="tabs">
+      <button class="active" data-tab="orders" onclick="tab('orders', this)">Orders</button>
+      <button data-tab="otp" onclick="tab('otp', this)">OTP Logs</button>
+    </div>
+    <div id="tab-orders">
+      <div class="filter-row">
+        <input class="input" id="q" placeholder="Search order / number / email..." style="max-width:300px">
+        <select class="input" id="fStatus"><option value="">All status</option><option>pending</option><option>completed</option><option>cancelled</option><option>expired</option></select>
+        <span class="spacer"></span>
+        <button class="btn" onclick="loadOrders()">Refresh</button>
+      </div>
+      <div class="table-wrap" id="ordWrap"><table><tr><td class="center">Loading...</td></tr></table></div>
+    </div>
+    <div id="tab-otp" class="hidden">
+      <div class="table-wrap" id="otpWrap"><table><tr><td class="center">Loading...</td></tr></table></div>
+    </div>
+
+    <div class="modal-overlay hidden" id="logModal">
+      <div class="modal">
+        <div class="modal-head">
+          <div><h3 id="logTitle">Order logs</h3><p class="sub" id="logSub"></p></div>
+          <button class="icon-btn" onclick="closeLogs()">✕</button>
+        </div>
+        <div class="modal-body" id="logBody"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/admin/sidebar.js"></script>
+<script>
+const B = { pending: 'amber', completed: 'green', cancelled: 'red', expired: 'red' };
+const L = { pending: 'Pending', completed: 'Completed', cancelled: 'Cancelled', expired: 'Expired' };
+
+mountSidebar('orders');
+
+window.tab = function (name, btn) {
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-orders').classList.toggle('hidden', name !== 'orders');
+  document.getElementById('tab-otp').classList.toggle('hidden', name !== 'otp');
+  if (name === 'otp') loadLogs();
+};
+
+async function loadOrders() {
+  try {
+    const { orders } = await API.get('/api/admin/orders');
+    const q = (document.getElementById('q').value || '').toLowerCase();
+    const fs = document.getElementById('fStatus').value;
+    const rows = orders.filter((o) =>
+      (!fs || o.status === fs) &&
+      (!q || o.orderId.toLowerCase().includes(q) || o.number.includes(q) ||
+       (o.email || '').toLowerCase().includes(q) || o.platform.toLowerCase().includes(q))
+    ).slice(0, 300);
+
+    const wrap = document.getElementById('ordWrap');
+    if (!rows.length) { wrap.innerHTML = '<div class="center" style="padding:30px;color:var(--muted)">No orders.</div>'; return; }
+    wrap.innerHTML =
+      '<table><thead><tr><th>Order</th><th>User</th><th>Platform</th><th>Country</th><th>Number</th><th>Price</th><th>OTP</th><th>Status</th><th>Created</th><th>OTP in</th><th></th></tr></thead><tbody>' +
+      rows.map((o) =>
+        '<tr>' +
+        '<td class="mono">' + esc(o.orderId) + '</td>' +
+        '<td><div class="cell-user"><div class="avatar sm">' + esc((o.user || o.email || '?').charAt(0).toUpperCase()) + '</div><div><b>' + esc(o.user || o.email || '—') + '</b><div class="cell-sub">' + esc(o.email || '') + '</div></div></div></td>' +
+        '<td><span class="brand-logo">' + platformLogo(o.platform, 17) + '</span> ' + esc(o.platform) + '</td>' +
+        '<td>' + (countryFlag(o.country) || '') + ' ' + esc(o.country) + '</td>' +
+        '<td class="mono">' + esc(o.number) + '</td>' +
+        '<td>' + fmtNum(o.price) + '</td>' +
+        '<td><b class="mono" style="color:var(--green)">' + esc(o.otpCode || '—') + '</b></td>' +
+        '<td><span class="badge ' + (B[o.status] || 'grey') + '">' + (L[o.status] || o.status) + '</span></td>' +
+        '<td class="small">' + timeAgo(o.createdAt) + '</td>' +
+        '<td class="small">' + (o.otpTime ? Math.max(0, Math.round((new Date(o.otpTime) - new Date(o.createdAt)) / 1000)) + 's' : '—') + '</td>' +
+        '<td><button class="btn sm" onclick="showLogs(' + o.id + ')">Logs</button></td>' +
+        '</tr>').join('') +
+      '</tbody></table>';
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function loadLogs() {
+  try {
+    const { logs } = await API.get('/api/admin/otp-logs');
+    const wrap = document.getElementById('otpWrap');
+    if (!logs.length) { wrap.innerHTML = '<div class="center" style="padding:30px;color:var(--muted)">No OTP logs yet.</div>'; return; }
+    wrap.innerHTML =
+      '<table><thead><tr><th>#</th><th>Order</th><th>Number</th><th>OTP</th><th>Message</th><th>Time</th></tr></thead><tbody>' +
+      logs.map((l) =>
+        '<tr><td>' + l.id + '</td><td class="mono">#' + esc(l.orderId) + '</td>' +
+        '<td class="mono">' + esc(l.number) + '</td>' +
+        '<td><b class="mono" style="color:var(--green)">' + esc(l.code) + '</b></td>' +
+        '<td class="small">' + esc((l.message || '').slice(0, 80)) + '</td>' +
+        '<td class="small">' + timeAgo(l.createdAt) + '</td></tr>').join('') +
+      '</tbody></table>';
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+let activeLogId = null;
+let logPollTimer = null;
+
+window.closeLogs = function () {
+  activeLogId = null;
+  if (logPollTimer) { clearInterval(logPollTimer); logPollTimer = null; }
+  document.getElementById('logModal').classList.add('hidden');
+};
+
+window.showLogs = async function (id) {
+  activeLogId = id;
+  const modal = document.getElementById('logModal');
+  modal.classList.remove('hidden');
+  if (!logPollTimer) {
+    logPollTimer = setInterval(() => {
+      if (activeLogId && !modal.classList.contains('hidden')) renderModalLogs(activeLogId);
+    }, 3000);
+  }
+  document.getElementById('logBody').innerHTML = '<div class="center" style="padding:40px;color:var(--muted)">Loading...</div>';
+  await renderModalLogs(id);
+};
+
+async function renderModalLogs(id) {
+  try {
+    const r = await API.get('/api/admin/orders/' + id + '/logs');
+    if (activeLogId !== id) return;
+    const o = r.order;
+    document.getElementById('logTitle').textContent = 'Order ' + o.orderId;
+    document.getElementById('logSub').textContent = o.platform + ' / ' + o.country + ' · ' + o.number + ' · ' + esc(o.status);
+    const pulls = r.pulls || [];
+    const rows = [];
+    if ((o.otpCode || '') && (o.otpMessage || '')) {
+      rows.push('<tr><td class="mono" style="color:var(--green)"><b>' + esc(o.otpCode) + '</b></td><td class="small">' + esc((o.otpMessage || '').slice(0, 120)) + '</td><td class="small">' + timeAgo(o.completedAt || o.otpTime) + '</td></tr>');
+    }
+    for (const l of r.otpLogs) {
+      rows.push('<tr><td class="mono" style="color:var(--green)"><b>' + esc(l.code) + '</b></td><td class="small">' + esc((l.message || '').slice(0, 120)) + '</td><td class="small">' + timeAgo(l.createdAt) + '</td></tr>');
+    }
+    const body =
+      '<div class="card" style="margin:0 0 16px"><b>Pull attempts</b> <span class="small" style="color:var(--muted2)">(' + pulls.length + ')</span>' +
+      (pulls.length
+        ? '<div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>Result</th><th>Detail</th><th>Time</th></tr></thead><tbody>' +
+          pulls.map((l) => '<tr><td><span class="badge ' + (l.result === 'ok' ? 'green' : l.result === 'error' ? 'red' : 'amber') + '">' + esc(l.result) + '</span></td><td class="small">' + esc(l.message || '') + '</td><td class="small">' + timeAgo(l.createdAt) + '</td></tr>').join('') +
+          '</tbody></table></div>'
+        : '<div class="small" style="padding:14px 0;color:var(--muted)">No pull attempts yet.</div>') +
+      '</div>' +
+      (rows.length
+        ? '<div class="card" style="margin:0"><b>OTP events</b>' +
+          '<div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>OTP</th><th>Message</th><th>Time</th></tr></thead><tbody>' + rows.join('') + '</tbody></table></div></div>'
+        : '');
+    document.getElementById('logBody').innerHTML = body || '<div class="center" style="padding:40px;color:var(--muted)">No logs for this order.</div>';
+  } catch (e) {
+    if (activeLogId === id) document.getElementById('logBody').innerHTML = '<div class="center" style="padding:40px;color:#b91c1c">' + esc(e.message) + '</div>';
+  }
+}
+
+document.getElementById('q').addEventListener('input', () => setTimeout(loadOrders, 250));
+document.getElementById('fStatus').addEventListener('change', loadOrders);
+
+(async function init() {
+  const user = await refreshMe();
+  if (!user || user.role !== 'admin') { window.location.href = '/admin-login'; return; }
+  await loadOrders();
+  setInterval(() => { if (!document.getElementById('tab-otp').classList.contains('hidden')) loadOrders(); }, 5000);
+})();
+</script>
+</body>
+</html>
